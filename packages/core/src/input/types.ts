@@ -36,6 +36,25 @@ export interface NoteEvent {
   readonly time: number;
   readonly sourceId: string;
   readonly channel?: number;
+  /**
+   * Which hand struck, when the source can attribute it.
+   *
+   * Absent for every ordinary source, and deliberately so: a pitch alone does
+   * not say which hand played it, and guessing from a middle-C threshold would
+   * corrupt every per-hand metric the moment the hands crossed. It is set only
+   * where something actually knows — a drill that constructed a register gap
+   * and checked it, or a microphone listening to one band.
+   */
+  readonly hand?: 'left' | 'right';
+  /**
+   * False when the source detected that a note happened but not which one.
+   *
+   * Band-split onset detection over a microphone can hear *that* a hand
+   * struck without recovering the pitch, which is enough to grade timing and
+   * nothing else. Marking it keeps a band hit from being mistaken for a
+   * recognised note.
+   */
+  readonly pitchKnown?: boolean;
 }
 
 /** Continuous controllers worth capturing. Pedal is the one that matters. */

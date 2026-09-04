@@ -318,6 +318,67 @@ try {
     else bad(`probe missing: ${key}`);
   }
 
+  console.log('\n== Independence Lab ==');
+  await page.goto(`${BASE}/play/independence`, { waitUntil: 'networkidle' });
+  {
+    // ind3 is Two against one — the first rung where the hands genuinely
+    // disagree, so the first one where entrainment is measurable at all.
+    await page.getByTestId('rung-ind3').click();
+    await page.getByTestId('new-exercise').click();
+    await page.waitForTimeout(1200);
+
+    const staff = await page.locator('[data-testid="independence-score"] svg').count();
+    if (staff > 0) ok('exercise engraved on two staves');
+    else bad('no staff rendered for the exercise');
+
+    const expected = (await page.getByTestId('independence-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+    if (expected.length > 0) ok(`exercise has ${expected.length} onsets`);
+    else bad('exercise exposed no expected notes');
+
+    const keys = await page.locator('div[role="group"] button').all();
+    const labels = await Promise.all(keys.map((k) => k.getAttribute('aria-label')));
+    const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const nameOf = (m) => `${NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
+
+    // Actually play it. A test that only checks a staff appeared cannot tell a
+    // working grader from one that returns the same verdict whatever it gets.
+    await page.getByTestId('start-take').click();
+    let offKeyboard = 0;
+    for (const cluster of expected) {
+      for (const midi of cluster.split('+').map(Number)) {
+        const i = labels.indexOf(nameOf(midi));
+        if (i >= 0) await keys[i].tap();
+        else offKeyboard += 1;
+      }
+      await page.waitForTimeout(200);
+    }
+    await page.getByTestId('finish-take').click();
+    await page.waitForTimeout(1200);
+
+    if (offKeyboard === 0) ok('every notated pitch was reachable on screen');
+    else bad(`${offKeyboard} notated pitches fell outside the keyboard`);
+
+    const verdict = (await page.getByTestId('independence-verdicts').innerText()).trim();
+    if (/held/.test(verdict)) ok('a correctly played exercise reports independence held');
+    else bad(`played correctly but reported: ${JSON.stringify(verdict.slice(0, 120))}`);
+
+    const percent = Number((verdict.match(/(\d+)%/) ?? [])[1] ?? 0);
+    if (percent >= 70) ok(`scored ${percent}% on a correct take`);
+    else bad(`a correct take scored only ${percent}%`);
+
+    // The dynamics rung must say so rather than inventing a number, because a
+    // touchscreen reports the same nominal velocity for every note.
+    await page.getByTestId('rung-ind7').click();
+    await page.waitForTimeout(300);
+    const body = await page.locator('body').innerText();
+    if (/needs\s+a MIDI keyboard/.test(body)) {
+      ok('the dynamics rung says it cannot measure dynamics from a touchscreen');
+    } else {
+      bad('the dynamics rung did not disclose that velocity is unavailable');
+    }
+  }
+
   console.log('\n== Grader inspector ==');
   await page.goto(`${BASE}/diagnostics/grader`, { waitUntil: 'networkidle' });
   await page.getByTestId('grader-findings').waitFor({ timeout: 15000 });
