@@ -367,6 +367,13 @@ try {
     if (percent >= 70) ok(`scored ${percent}% on a correct take`);
     else bad(`a correct take scored only ${percent}%`);
 
+    // The microphone fallback exists and discloses what it can and cannot
+    // grade. It is not exercised here — a headless container has no piano to
+    // listen to — but its presence and its caveat are checkable.
+    const micButton = await page.getByTestId('toggle-mic').count();
+    if (micButton > 0) ok('microphone fallback is offered');
+    else bad('no microphone option on the Lab');
+
     // The dynamics rung must say so rather than inventing a number, because a
     // touchscreen reports the same nominal velocity for every note.
     await page.getByTestId('rung-ind7').click();

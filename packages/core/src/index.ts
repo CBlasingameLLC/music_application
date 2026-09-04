@@ -23,6 +23,7 @@ export * from './grading/synthesize';
 export * from './grading/independence';
 
 export * from './input/types';
+export * from './input/onsetPicker';
 
 export * from './events/types';
 

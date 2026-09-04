@@ -36,7 +36,20 @@ interface OpenNote {
   readonly velocity: number;
 }
 
-export function useTakeRecorder(tempoTarget: number | null): TakeRecorder {
+/**
+ * Supplies the pitch for a source that heard *that* a hand struck but not
+ * *what* it played — band-split microphone input.
+ *
+ * Returning null drops the hit. Whatever this returns is taken on trust, so a
+ * take assembled this way can be graded for timing and hands but never for
+ * note accuracy: it was told the notes, it did not hear them.
+ */
+export type PitchResolver = (hand: 'left' | 'right', onsetMs: number) => MidiNote | null;
+
+export function useTakeRecorder(
+  tempoTarget: number | null,
+  resolvePitch?: PitchResolver,
+): TakeRecorder {
   const [recording, setRecording] = useState(false);
   const [noteCount, setNoteCount] = useState(0);
 
@@ -48,6 +61,8 @@ export function useTakeRecorder(tempoTarget: number | null): TakeRecorder {
   // graded for dynamics has to know this, because a touchscreen reports a
   // nominal 0.7 for every note and scoring that would be measuring nothing.
   const sawVelocity = useRef(false);
+  const resolver = useRef(resolvePitch);
+  resolver.current = resolvePitch;
 
   const start = useCallback(() => {
     notes.current = [];
@@ -66,10 +81,20 @@ export function useTakeRecorder(tempoTarget: number | null): TakeRecorder {
         return;
       }
 
+      // A source that knows the hand but not the pitch gets the pitch from
+      // the score. That makes the take gradeable for timing and hands, and
+      // deliberately not for note accuracy — it was told, it did not hear.
+      let midi = event.midi;
+      if (event.pitchKnown === false && event.hand) {
+        const resolved = resolver.current?.(event.hand, event.time);
+        if (resolved === null || resolved === undefined) return;
+        midi = resolved;
+      }
+
       if (event.type === 'note-on') {
         if (input.velocityAvailable) sawVelocity.current = true;
-        open.current.set(event.midi, {
-          midi: event.midi,
+        open.current.set(midi, {
+          midi,
           onsetMs: event.time,
           velocity: event.velocity,
         });
@@ -77,9 +102,9 @@ export function useTakeRecorder(tempoTarget: number | null): TakeRecorder {
         return;
       }
 
-      const started = open.current.get(event.midi);
+      const started = open.current.get(midi);
       if (!started) return;
-      open.current.delete(event.midi);
+      open.current.delete(midi);
       notes.current.push({
         midi: started.midi,
         onsetMs: started.onsetMs,
