@@ -8,6 +8,7 @@ import {
   
 } from '@etude/core';
 import { audio, playCadence } from '@/lib/audio';
+import { useCollectedNotes } from '@/lib/input/useNoteInput';
 import { Keyboard } from './Keyboard';
 
 export interface DrillPlayerProps {
@@ -225,8 +226,11 @@ function ChordQuestion({
   scaffolds: readonly ScaffoldId[];
   onSubmit: (r: Response) => void;
 }) {
-  const [down, setDown] = useState<number[]>([]);
-  useEffect(() => setDown([]), [drill.id]);
+  // Notes arrive through the input manager, so this drill accepts the on-screen
+  // keyboard and a real MIDI keyboard identically — and will accept the LAN
+  // bridge later without changing.
+  const { notes: down, reset } = useCollectedNotes();
+  useEffect(() => reset(), [drill.id, reset]);
 
   const q = drill.question;
   const target = useMemo(
@@ -235,10 +239,6 @@ function ChordQuestion({
   );
   if (q.kind !== 'play-chord') return null;
   const expectedCount = target.length;
-
-  const noteOn = (midi: number) => {
-    setDown((prev) => (prev.includes(midi) ? prev : [...prev, midi]));
-  };
 
   // Submitting is explicit rather than automatic on note count. Auto-firing at
   // N notes would score a half-formed chord the instant the third finger lands.
@@ -249,7 +249,7 @@ function ChordQuestion({
   const targetPcs = new Set(target.map((t) => t % 12));
   const marks = grade
     ? (Object.fromEntries(
-        down.map((m) => [m, targetPcs.has(m % 12) ? 'correct' : 'wrong']),
+        [...down].map((m) => [m, targetPcs.has(m % 12) ? 'correct' : 'wrong']),
       ) as Record<number, 'correct' | 'wrong'>)
     : {};
 
@@ -268,7 +268,7 @@ function ChordQuestion({
         </span>
         <button
           type="button"
-          onClick={() => setDown([])}
+          onClick={reset}
           disabled={!!grade || down.length === 0}
           className="tap rounded-lg bg-raised px-4 text-sm text-ink-dim disabled:opacity-40"
         >
@@ -288,7 +288,6 @@ function ChordQuestion({
         <Keyboard
           low={48}
           octaves={2}
-          onNoteOn={noteOn}
           disabled={!!grade}
           highlight={scaffolds.includes('keyboard-highlight') && !grade ? target : []}
           showNames={scaffolds.includes('letter-names')}

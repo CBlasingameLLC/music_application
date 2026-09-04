@@ -82,9 +82,26 @@ export default function PracticePage() {
         </button>
       </section>
 
+      <section className="mt-6">
+        <Link href="/play/free" className="panel block p-5 active:bg-raised">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-lg font-semibold text-ink">Free Play</span>
+            <span className="text-xs text-ink-faint">nothing scored</span>
+          </div>
+          <p className="mt-1 text-sm text-ink-dim">
+            Just play. Chords and keys are named live as you go.
+          </p>
+          <p className="mt-2 border-t border-hairline pt-2 text-xs leading-snug text-ink-faint">
+            Unstructured playing is where musical intuition forms, so this is
+            deliberately ungraded — but it still counts toward your day and your
+            streak.
+          </p>
+        </Link>
+      </section>
+
       <section className="mt-10">
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-ink-faint">
-          Or pick one
+          Or pick a drill
         </h2>
         <p className="mb-4 text-sm text-ink-faint">
           Free practice counts toward your day and your streak exactly the same.

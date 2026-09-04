@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { audio } from '@/lib/audio';
+import { MidiStatus } from '@/components/MidiStatus';
+import { LatencyCalibration } from '@/components/LatencyCalibration';
+import { input } from '@/lib/input/manager';
 import { requestPersistence, storageEstimate } from '@/db/schema';
 import { exportLog, importLog } from '@/db/log';
 
@@ -259,7 +262,19 @@ export default function DiagnosticsPage() {
         device actually supports.
       </p>
 
-      <div className="mt-5 flex flex-wrap gap-3">
+      <div className="mt-6 space-y-4">
+        <MidiStatus />
+        <LatencyCalibration
+          sourceId={input.hasKind('midi') ? 'midi:all' : 'onscreen'}
+          label={input.hasKind('midi') ? 'MIDI keyboard' : 'On-screen keyboard'}
+        />
+      </div>
+
+      <h2 className="mt-10 text-sm font-semibold uppercase tracking-wider text-ink-faint">
+        Device probes
+      </h2>
+
+      <div className="mt-3 flex flex-wrap gap-3">
         <button
           type="button"
           onClick={() => void run()}
@@ -284,7 +299,7 @@ export default function DiagnosticsPage() {
         </pre>
       )}
 
-      <div className="panel mt-6 divide-y divide-hairline">
+      <div data-testid="device-probes" className="panel mt-6 divide-y divide-hairline">
         {probes.map((p) => (
           <div key={p.label} className="px-4 py-3">
             <div className="flex items-baseline gap-3">

@@ -133,6 +133,66 @@ try {
   if (events >= 3) ok(`${events} events in IndexedDB`);
   else bad(`expected at least 3 events, found ${events}`);
 
+  console.log('\n== Free Play live analysis ==');
+  await page.goto(`${BASE}/play/free`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(900);
+  if (await page.getByText('Free Play').first().isVisible()) ok('free play renders');
+  else bad('free play missing');
+
+  {
+    const fpKeys = await page.locator('div[role="group"] button').all();
+    const fpLabels = await Promise.all(fpKeys.map((k) => k.getAttribute('aria-label')));
+
+    const playChord = async (notes, holdMs) => {
+      for (const [j, n] of notes.entries()) {
+        const i = fpLabels.indexOf(n);
+        if (i >= 0) {
+          // Distinct pointer ids: real multi-touch gives each finger its own,
+          // and reusing one would release the previous note.
+          await fpKeys[i].dispatchEvent('pointerdown', { pointerId: 30 + j, isPrimary: j === 0 });
+        } else bad(`free play: key ${n} not on screen`);
+      }
+      await page.waitForTimeout(holdMs);
+    };
+    const releaseChord = async (notes) => {
+      for (const [j, n] of notes.entries()) {
+        const i = fpLabels.indexOf(n);
+        if (i >= 0) await fpKeys[i].dispatchEvent('pointerup', { pointerId: 30 + j, isPrimary: j === 0 });
+      }
+      await page.waitForTimeout(140);
+    };
+
+    // Play a ii-V-I and resolve onto the tonic, which is what tells the
+    // analyzer where home is.
+    for (const chord of [['D4', 'F4', 'A4'], ['G3', 'B3', 'D4', 'F4'], ['C4', 'E4', 'G4']]) {
+      await playChord(chord, 420);
+      await releaseChord(chord);
+    }
+    await playChord(['C4', 'E4', 'G4'], 900);
+
+    const readout = await page.getByTestId('analyzer-readout').innerText();
+    const firstLine = readout.split('\n')[0] ?? '';
+    if (/^C$/.test(firstLine.trim())) ok(`analyzer named the chord: ${firstLine}`);
+    else bad(`analyzer did not name C major, showed: ${JSON.stringify(firstLine)}`);
+
+    // The Roman numeral is the part that transfers to the next song you try to
+    // work out, so it is worth guarding, not just the chord name.
+    if (/\bI\b/.test(readout) && /C major/.test(readout)) {
+      ok('analyzer inferred the key and numeral: I in C major');
+    } else {
+      bad(`analyzer did not infer I in C major, showed: ${JSON.stringify(readout.slice(0, 120))}`);
+    }
+  }
+
+  console.log('\n== MIDI status is explicit about why ==');
+  await page.goto(`${BASE}/diagnostics`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1200);
+  const midiPanel = await page.getByText('MIDI keyboard').first().isVisible();
+  if (midiPanel) ok('MIDI connection panel present');
+  else bad('MIDI connection panel missing');
+  if (await page.getByText('Timing calibration').first().isVisible()) ok('latency calibration present');
+  else bad('latency calibration missing');
+
   console.log('\n== Progress map ==');
   await page.goto(`${BASE}/map`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(600);
@@ -143,7 +203,7 @@ try {
   await page.goto(`${BASE}/diagnostics`, { waitUntil: 'networkidle' });
   // Probes only settle after the audio timeout; wait on content, not a clock.
   await page.getByRole('button', { name: 'Re-run probes' }).waitFor({ timeout: 20000 });
-  const probes = await page.locator('.panel').first().textContent();
+  const probes = await page.getByTestId('device-probes').textContent();
   for (const key of [
     'Web MIDI', 'Output latency', 'getOutputTimestamp',
     'Persistent storage', 'OPFS', 'Service worker',

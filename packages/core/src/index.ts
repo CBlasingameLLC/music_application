@@ -5,6 +5,9 @@ export * from './theory/interval';
 export * from './theory/scale';
 export * from './theory/chord';
 export * from './theory/harmony';
+export * from './theory/detect';
+
+export * from './input/types';
 
 export * from './events/types';
 

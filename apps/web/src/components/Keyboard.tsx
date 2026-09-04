@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { midiToSharpName, spellInKey, type Key as MusicKey } from '@etude/core';
 import { audio } from '@/lib/audio';
+import { input } from '@/lib/input/manager';
 
 /**
  * The on-screen keyboard.
@@ -72,6 +73,13 @@ export function Keyboard({
   const press = useCallback(
     (midi: number, pointerId: number) => {
       if (disabled) return;
+      // If this pointer was already holding a note, release it first. Silently
+      // overwriting would emit a note-on with no matching note-off and leave the
+      // note stuck down — which is what happens for real when a touch is
+      // cancelled mid-gesture.
+      const previous = pointers.current.get(pointerId);
+      if (previous !== undefined && previous !== midi) releaseRef.current(pointerId);
+
       pointers.current.set(pointerId, midi);
       setHeld((prev) => {
         if (prev.has(midi)) return prev;
@@ -80,10 +88,23 @@ export function Keyboard({
         return next;
       });
       void audio.resume().then(() => audio.note(midi, 0.7));
+      // Published through the manager so drills consume one stream whether the
+      // note came from this keyboard or from real MIDI hardware.
+      input.publish({
+        type: 'note-on',
+        midi,
+        // Nominal: a touchscreen has no velocity, and `hasVelocity` is false on
+        // this source so nothing scores dynamics from it.
+        velocity: 0.7,
+        time: performance.now(),
+        sourceId: 'onscreen',
+      });
       onNoteOn?.(midi);
     },
     [disabled, onNoteOn],
   );
+
+  const releaseRef = useRef<(pointerId: number) => void>(() => {});
 
   const release = useCallback(
     (pointerId: number) => {
@@ -98,6 +119,9 @@ export function Keyboard({
           next.delete(midi);
           return next;
         });
+        input.publish({
+          type: 'note-off', midi, velocity: 0, time: performance.now(), sourceId: 'onscreen',
+        });
         onNoteOff?.(midi);
       }
     },
@@ -108,6 +132,8 @@ export function Keyboard({
     () => new Set(highlight.map((m) => ((m % 12) + 12) % 12)),
     [highlight],
   );
+
+  releaseRef.current = release;
 
   const label = (midi: number): string => {
     if (!showNames) return '';

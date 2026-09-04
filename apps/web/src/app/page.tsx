@@ -58,12 +58,20 @@ export default function TodayPage() {
       </section>
 
       <section className="mt-6">
-        <Link
-          href="/practice"
-          className="tap w-full rounded-2xl bg-accent px-6 py-6 text-[1.3rem] font-bold text-accent-ink"
-        >
-          Start practising
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            href="/practice"
+            className="tap flex-1 rounded-2xl bg-accent px-6 py-6 text-[1.3rem] font-bold text-accent-ink"
+          >
+            Start practising
+          </Link>
+          <Link
+            href="/play/free"
+            className="tap rounded-2xl bg-raised px-7 py-6 text-[1.05rem] font-semibold text-ink-dim"
+          >
+            Free play
+          </Link>
+        </div>
       </section>
 
       <section className="mt-10">
