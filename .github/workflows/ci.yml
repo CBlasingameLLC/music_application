@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push supersedes an in-flight run on the same ref; there is no value in
+# finishing a build for a commit that has already been replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Tests, types, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the version from the root packageManager field, so CI and local
+      # development can never silently drift apart.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm --filter @etude/web build
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Playwright ships its own Chromium. The local container has one at a
+      # fixed path, which the smoke test uses when CHROME_PATH is set; an empty
+      # value tells it to use Playwright's instead.
+      - name: Install Chromium
+        run: pnpm --filter @etude/web exec playwright install --with-deps chromium
+
+      - name: Build
+        run: pnpm --filter @etude/web build
+
+      - name: Start server
+        run: |
+          pnpm --filter @etude/web start -p 3311 &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:3311/ && exit 0
+            sleep 1
+          done
+          echo "server did not come up within 30s"
+          exit 1
+
+      # This is the check that has earned its place: it has caught four
+      # failures that typechecked cleanly and passed every unit test, including
+      # a keyboard that silently swallowed every tap.
+      - name: Smoke test
+        run: pnpm --filter @etude/web test:e2e
+        env:
+          BASE_URL: http://localhost:3311
+          CHROME_PATH: ''

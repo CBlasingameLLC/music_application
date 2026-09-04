@@ -7,6 +7,12 @@ export * from './theory/chord';
 export * from './theory/harmony';
 export * from './theory/detect';
 
+export * from './score/model';
+export * from './score/timeline';
+export * from './score/musicxml/parse';
+export * from './score/musicxml/serialize';
+export * from './score/generate/sightReading';
+
 export * from './input/types';
 
 export * from './events/types';
