@@ -2,7 +2,7 @@
   "name": "etude",
   "version": "0.1.0",
   "private": true,
-  "description": "Étude — a music training PWA that teaches piano the way a teacher would.",
+  "description": "\u00c9tude \u2014 a music training PWA that teaches piano the way a teacher would.",
   "scripts": {
     "dev": "pnpm --filter @etude/web dev",
     "build": "pnpm --filter @etude/core build && pnpm --filter @etude/web build",

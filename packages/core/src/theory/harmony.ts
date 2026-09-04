@@ -8,12 +8,12 @@
  */
 
 import {
-  type SpelledPitch, mod12, mod7, stepFromIndex, stepIndex, toMidi,
-} from './pitch.js';
+  type SpelledPitch, mod12, mod7, stepIndex, toMidi,
+} from './pitch';
 import {
   type Chord, type ChordQuality, chordSymbol, chordTones, inversionFigure,
-} from './chord.js';
-import { type Key, keyScale, scaleNotes } from './scale.js';
+} from './chord';
+import { type Key, keyScale, scaleNotes } from './scale';
 
 /** Triad qualities on each degree of a major key. */
 const MAJOR_TRIADS: ChordQuality[] = [
@@ -326,5 +326,3 @@ export function describeChordInKey(chord: Chord, key: Key): string {
   const rn = secondary ?? romanNumeral(chord, key);
   return `${chordSymbol(chord)} — ${rn}`;
 }
-
-export { chordTones, scaleNotes, stepFromIndex };

@@ -6,11 +6,14 @@
  * itself and how much evidence a result provides for which skills.
  */
 
-import type { Chord } from '../theory/chord.js';
-import type { Interval } from '../theory/interval.js';
-import type { Key } from '../theory/scale.js';
-import type { MidiNote } from '../theory/pitch.js';
-import type { SkillEvidence } from '../events/types.js';
+import type { Chord } from '../theory/chord';
+import type { Interval } from '../theory/interval';
+import type { Key } from '../theory/scale';
+import type { MidiNote } from '../theory/pitch';
+import type { Articulation, Score } from '../score/model';
+import type { PerformedTake } from '../grading/take';
+import type { IndependenceAspect } from '../grading/independence';
+import type { SkillEvidence } from '../events/types';
 
 export type ModeId =
   | 'chord-sprint'
@@ -18,7 +21,9 @@ export type ModeId =
   | 'interval-ladder'
   | 'progression-detective'
   | 'key-signature-blitz'
-  | 'rhythm-gauntlet';
+  | 'rhythm-gauntlet'
+  | 'sight-read'
+  | 'independence';
 
 export interface RhythmEvent {
   /** Onset in beats from the start of the pattern. */
@@ -79,6 +84,38 @@ export type Question =
   | {
       readonly kind: 'tap-rhythm';
       readonly pattern: RhythmPattern;
+    }
+  | {
+      readonly kind: 'read-notation';
+      readonly score: Score;
+      /** Serialised for the renderer; the model above is what grading reads. */
+      readonly musicXml: string;
+      /** Expected pitches in playing order, ties already resolved. */
+      readonly expected: readonly MidiNote[];
+      readonly key: Key;
+      readonly tempo: number;
+      readonly hands: 1 | 2;
+    }
+  | {
+      /**
+       * Two hands, deliberately disagreeing.
+       *
+       * Carries its own `splitPoint`: the generator guarantees the hands
+       * occupy disjoint registers, which is what lets a live note be
+       * attributed to a hand exactly rather than guessed at. That is safe
+       * *because* the material is generated — the same trick on real
+       * repertoire would be the middle-C threshold the grader refuses, since
+       * there the left hand crosses over constantly.
+       */
+      readonly kind: 'play-independence';
+      readonly score: Score;
+      readonly musicXml: string;
+      readonly splitPoint: MidiNote;
+      readonly ratio: string;
+      readonly aspect: IndependenceAspect;
+      readonly articulation: { right: Articulation; left: Articulation } | null;
+      readonly dynamics: { right: string; left: string } | null;
+      readonly tempo: number;
     };
 
 export type Response =
@@ -86,6 +123,7 @@ export type Response =
   | { readonly kind: 'choice'; readonly value: string }
   | { readonly kind: 'sequence'; readonly values: readonly string[] }
   | { readonly kind: 'taps'; readonly offsetsMs: readonly number[] }
+  | { readonly kind: 'take'; readonly take: PerformedTake }
   | { readonly kind: 'skipped' };
 
 export interface Grade {

@@ -18,7 +18,7 @@ import {
   stepIndex,
   stepSemitones,
   toMidi,
-} from './pitch.js';
+} from './pitch';
 
 export type ScaleType =
   | 'major'

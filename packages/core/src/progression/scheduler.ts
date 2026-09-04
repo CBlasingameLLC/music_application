@@ -19,8 +19,8 @@
 import {
   type Card, type Grade, Rating, createEmptyCard, fsrs, generatorParameters,
 } from 'ts-fsrs';
-import type { SkillKind } from '../skills/taxonomy.js';
-import { type MasteryState, currentMastery } from './mastery.js';
+import type { SkillKind } from '../skills/taxonomy';
+import { type MasteryState, currentMastery } from './mastery';
 
 const engine = fsrs(
   generatorParameters({

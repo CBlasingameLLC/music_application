@@ -16,10 +16,13 @@ coverage/
 .vercel/
 .turbo/
 
-# Service worker build output
-public/sw.js
-public/sw.js.map
-public/swe-worker-*.js
+# Service worker build output.
+# Leading ** matters: a pattern containing a slash is anchored to this file's
+# directory, so `public/sw.js` would only ever match at the repo root and never
+# apps/web/public/sw.js.
+**/public/sw.js
+**/public/sw.js.map
+**/public/swe-worker-*.js
 
 # Private copyrighted content never belongs in git.
 # Runtime-imported scores live in OPFS/IndexedDB on the device only.

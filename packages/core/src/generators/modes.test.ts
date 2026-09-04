@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { LADDERS, MODES, generateDrill, gradeDrill, gradeRhythm, modeMeta } from './modes.js';
-import { evidenceFor, type ModeId, type Response } from './questions.js';
-import { makeRng } from './rng.js';
-import { chordVoicing } from '../theory/chord.js';
-import { intervalAbbrev } from '../theory/interval.js';
-import { SKILLS } from '../skills/taxonomy.js';
+import {
+  LADDERS, MODES, generateDrill, gradeDrill, gradeReading, gradeRhythm, modeMeta,
+} from './modes';
+import { evidenceFor, type ModeId, type Response } from './questions';
+import { makeRng } from './rng';
+import { chordVoicing } from '../theory/chord';
+import { intervalAbbrev } from '../theory/interval';
+import { SKILLS } from '../skills/taxonomy';
+import { synthesizeTake } from '../grading/synthesize';
 
 const MODE_IDS = MODES.map((m) => m.id);
 
@@ -31,6 +34,17 @@ function perfectResponse(drill: ReturnType<typeof generateDrill>): Response {
           .map((e) => e.beat * msPerBeat),
       };
     }
+    case 'read-notation':
+      return { kind: 'notes', midi: [...q.expected] };
+    case 'play-independence':
+      // A mechanically exact rendering of the exercise. Unlike every other
+      // mode, this one is graded on a continuous measure rather than on
+      // whether the answer matched, so "perfect" here means a take with no
+      // injected fault, not a take that scores a literal 1.
+      return {
+        kind: 'take',
+        take: synthesizeTake(q.score, { tempo: q.tempo, seed: 1 }),
+      };
   }
 }
 
@@ -122,7 +136,16 @@ describe('drill generation', () => {
         for (let i = 0; i < 20; i++) {
           const drill = generateDrill({ modeId, rungIndex: rung, seed: rng.int(0, 1e9) });
           const grade = gradeDrill(drill, perfectResponse(drill));
-          expect(grade.correctness, `${modeId}/${rung} seed ${drill.seed}`).toBeCloseTo(1, 5);
+          const label = `${modeId}/${rung} seed ${drill.seed}`;
+          if (modeId === 'independence') {
+            // The only mode graded on a measurement rather than a match. Even
+            // a mechanically exact take reads a percent or two of entrainment,
+            // because the measure is continuous — demanding a literal 1 would
+            // be asserting a precision the number does not carry.
+            expect(grade.correctness, label).toBeGreaterThan(0.95);
+          } else {
+            expect(grade.correctness, label).toBeCloseTo(1, 5);
+          }
           expect(grade.correct, `${modeId}/${rung}`).toBe(true);
         }
       }
@@ -165,6 +188,41 @@ describe('drill generation', () => {
       expect(evidence.length, modeId).toBeGreaterThan(0);
       for (const e of evidence) expect(e.correctness).toBeCloseTo(1, 5);
     }
+  });
+});
+
+describe('reading grading', () => {
+  const expected = [60, 62, 64, 65];
+
+  it('scores a perfect read as correct', () => {
+    const g = gradeReading(expected, [60, 62, 64, 65]);
+    expect(g.correctness).toBe(1);
+    expect(g.correct).toBe(true);
+  });
+
+  it('does not let one wrong note desync the rest', () => {
+    // A single wrong note early must cost one note, not everything after it.
+    const g = gradeReading(expected, [60, 61, 62, 64, 65]);
+    expect(g.correctness).toBeGreaterThan(0.85);
+    expect(g.diagnostics.matched).toBe(4);
+  });
+
+  it('reports missed notes', () => {
+    const g = gradeReading(expected, [60, 62]);
+    expect(g.diagnostics.missed).toBe(2);
+    expect(g.correct).toBe(false);
+    expect(g.detail).toMatch(/missed/);
+  });
+
+  it('penalises extra notes without erasing a mostly-correct read', () => {
+    const g = gradeReading(expected, [60, 62, 64, 65, 67, 69]);
+    expect(g.correctness).toBeLessThan(1);
+    expect(g.correctness).toBeGreaterThan(0.5);
+    expect(g.diagnostics.extraNotes).toBe(2);
+  });
+
+  it('scores an empty attempt as zero', () => {
+    expect(gradeReading(expected, []).correctness).toBe(0);
   });
 });
 
