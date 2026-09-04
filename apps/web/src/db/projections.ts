@@ -12,12 +12,10 @@
  */
 
 import {
-  type EtudeEvent, type MasteryState, type ModeId, type MotorState,
-  type DeclarativeCard, type LadderState, type StreakState, type SkillKind,
-  LADDERS, SKILLS, applyEvidence, currentMastery, dueAt as masteryDueAt,
-  initialLadderState, initialMastery, initialStreak, localDay, newDeclarativeCard,
-  newMotorState, recordQualifyingDay, reviewDeclarative, reviewMotor,
-  DAILY_MINIMUM_MINUTES, skill,
+  type AppState, type DeclarativeCard, type EtudeEvent, type MasteryState,
+  type MotorState, type SkillAccumulator,
+  PROJECTION_VERSION, SKILLS, currentMastery, dueAt as masteryDueAt,
+  emptyAppState, foldEvents, initialMastery, skillKind, streakFrom,
 } from '@etude/core';
 import { db, type SkillRow } from './schema';
 import { eventsAfter } from './log';
@@ -26,49 +24,16 @@ import { eventsAfter } from './log';
  * Bump whenever fold logic changes. A mismatch discards the derived tables and
  * replays from genesis — safe precisely because they are derived.
  */
-export const PROJECTION_VERSION = 1;
-
 const CURSOR_KEY = 'projection:cursor';
 const STATE_KEY = 'projection:state';
 
-export interface AppState {
-  readonly version: number;
-  readonly totalXp: number;
-  readonly ladders: Partial<Record<ModeId, LadderState>>;
-  readonly sessionsCompleted: number;
-  readonly lastPracticedAt: string | null;
-  /** Practice seconds per local calendar day. Drives the streak. */
-  readonly secondsByDay: Record<string, number>;
-  readonly attemptsTotal: number;
-  readonly correctTotal: number;
-}
-
-export const emptyAppState: AppState = {
-  version: PROJECTION_VERSION,
-  totalXp: 0,
-  ladders: {},
-  sessionsCompleted: 0,
-  lastPracticedAt: null,
-  secondsByDay: {},
-  attemptsTotal: 0,
-  correctTotal: 0,
+// The fold itself now lives in core, shared with the historical replay behind
+// the analytics. Re-exported here so every existing import keeps working, and
+// so there is visibly one definition rather than two that could drift.
+export {
+  PROJECTION_VERSION, emptyAppState, foldEvents, streakFrom, skillKind,
+  type AppState, type SkillAccumulator,
 };
-
-interface SkillAccumulator {
-  mastery: MasteryState;
-  declarative?: DeclarativeCard;
-  motor?: MotorState;
-}
-
-function skillKind(skillId: string): SkillKind {
-  try {
-    return skill(skillId).kind;
-  } catch {
-    // An event referencing a skill this build no longer defines must not break
-    // the fold; treat it as declarative and move on.
-    return 'declarative';
-  }
-}
 
 function loadAccumulator(row: SkillRow | undefined, skillId: string): SkillAccumulator {
   const kind = skillKind(skillId);
@@ -78,129 +43,6 @@ function loadAccumulator(row: SkillRow | undefined, skillId: string): SkillAccum
     declarative: row.declarative as DeclarativeCard | undefined,
     motor: row.motor as MotorState | undefined,
   };
-}
-
-/**
- * Fold a batch of events into state.
- *
- * Pure apart from the accumulators it is handed, so the equivalence test can
- * run it over the whole log and compare against the incremental path.
- */
-export function foldEvents(
-  state: AppState,
-  skills: Map<string, SkillAccumulator>,
-  events: readonly EtudeEvent[],
-): AppState {
-  let next: AppState = { ...state, ladders: { ...state.ladders }, secondsByDay: { ...state.secondsByDay } };
-
-  for (const event of events) {
-    const at = new Date(event.at);
-    const day = localDay(at);
-
-    switch (event.type) {
-      case 'Session.Ended': {
-        next = {
-          ...next,
-          sessionsCompleted: next.sessionsCompleted + 1,
-          secondsByDay: {
-            ...next.secondsByDay,
-            [day]: (next.secondsByDay[day] ?? 0) + event.payload.elapsedSeconds,
-          },
-        };
-        break;
-      }
-
-      case 'Activity.Attempted': {
-        // Drills played outside a planned session still count toward the day.
-        // The overhead approximates reading and thinking time, which response
-        // latency alone would miss.
-        if (!event.payload.sessionId) {
-          const seconds = event.payload.responseMs / 1000 + 4;
-          next = {
-            ...next,
-            secondsByDay: {
-              ...next.secondsByDay,
-              [day]: (next.secondsByDay[day] ?? 0) + seconds,
-            },
-          };
-        }
-        next = { ...next, attemptsTotal: next.attemptsTotal + 1, lastPracticedAt: event.at };
-        break;
-      }
-
-      case 'Activity.Graded': {
-        const p = event.payload;
-        next = {
-          ...next,
-          totalXp: next.totalXp + p.xpAwarded,
-          correctTotal: next.correctTotal + (p.correctness >= 0.99 ? 1 : 0),
-        };
-
-        for (const evidence of p.skillEvidence) {
-          const acc = skills.get(evidence.skillId)
-            ?? { mastery: initialMastery(evidence.skillId, skillKind(evidence.skillId)) };
-
-          acc.mastery = applyEvidence(acc.mastery, evidence.correctness, evidence.weight, at);
-
-          if (acc.mastery.kind === 'declarative') {
-            const card = acc.declarative ?? newDeclarativeCard(evidence.skillId);
-            acc.declarative = reviewDeclarative(card, evidence.correctness, p.latencyMs, at);
-          } else {
-            const motor = acc.motor ?? newMotorState(evidence.skillId, 120);
-            acc.motor = reviewMotor(motor, evidence.correctness, motor.achievedTempo, at);
-          }
-          skills.set(evidence.skillId, acc);
-        }
-        break;
-      }
-
-      case 'Ladder.Moved': {
-        const modeId = event.payload.modeId as ModeId;
-        const ladder = LADDERS[modeId];
-        if (!ladder) break;
-        const current = next.ladders[modeId] ?? initialLadderState(modeId);
-        const toIndex = ladder.rungs.findIndex((r) => r.id === event.payload.toRungId);
-        if (toIndex < 0) break;
-        next = {
-          ...next,
-          ladders: {
-            ...next.ladders,
-            [modeId]: {
-              ...current,
-              rungIndex: toIndex,
-              recent: [],
-              promotions: current.promotions + (event.payload.direction === 'promote' ? 1 : 0),
-              demotions: current.demotions + (event.payload.direction === 'demote' ? 1 : 0),
-              highWater: Math.max(current.highWater, toIndex),
-            },
-          },
-        };
-        break;
-      }
-
-      default:
-        break;
-    }
-  }
-
-  return next;
-}
-
-/**
- * The streak, recomputed from the day ledger rather than stored incrementally.
- *
- * Freezes are order-dependent, so replaying the whole day list is both simpler
- * and impossible to drift. A few hundred entries a year costs nothing.
- */
-export function streakFrom(secondsByDay: Readonly<Record<string, number>>): StreakState {
-  const qualifying = Object.entries(secondsByDay)
-    .filter(([, seconds]) => seconds >= DAILY_MINIMUM_MINUTES * 60)
-    .map(([day]) => day)
-    .sort();
-
-  let state = initialStreak;
-  for (const day of qualifying) state = recordQualifyingDay(state, day).state;
-  return state;
 }
 
 async function readCursor(): Promise<{ id: string | null; version: number }> {
@@ -306,4 +148,3 @@ export async function resetProjections(): Promise<void> {
   });
 }
 
-export type { SkillAccumulator };
