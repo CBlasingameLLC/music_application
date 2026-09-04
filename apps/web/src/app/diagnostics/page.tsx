@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { audio } from '@/lib/audio';
 import { MidiStatus } from '@/components/MidiStatus';
@@ -277,6 +278,17 @@ export default function DiagnosticsPage() {
           label={input.hasKind('midi') ? 'MIDI keyboard' : 'On-screen keyboard'}
         />
       </div>
+
+      <Link
+        href="/diagnostics/grader"
+        className="panel mt-4 block p-4 active:bg-raised"
+      >
+        <div className="font-semibold text-ink">Grader inspector</div>
+        <div className="mt-1 text-sm text-ink-faint">
+          Inject a known fault into a known piece and see what the grader makes
+          of it — the way to trust a metric before there is a keyboard to test it.
+        </div>
+      </Link>
 
       <h2 className="mt-10 text-sm font-semibold uppercase tracking-wider text-ink-faint">
         Device probes

@@ -318,6 +318,56 @@ try {
     else bad(`probe missing: ${key}`);
   }
 
+  console.log('\n== Grader inspector ==');
+  await page.goto(`${BASE}/diagnostics/grader`, { waitUntil: 'networkidle' });
+  await page.getByTestId('grader-findings').waitFor({ timeout: 15000 });
+
+  {
+    const clean = (await page.getByTestId('grader-findings').innerText()).trim();
+    if (/Clean take/.test(clean)) ok('a perfect take reports nothing to fix');
+    else bad(`perfect take reported: ${JSON.stringify(clean.slice(0, 90))}`);
+
+    // Switching the injected fault must change what the grader says. A metric
+    // that reads the same regardless is measuring nothing.
+    await page.getByRole('button', { name: 'Losing your place' }).click();
+    await page.waitForTimeout(400);
+    const hesitated = (await page.getByTestId('grader-findings').innerText()).trim();
+    if (/stopped to think/.test(hesitated)) ok('a hesitation is located and named');
+    else bad(`hesitation not reported: ${JSON.stringify(hesitated.slice(0, 90))}`);
+
+    await page.getByRole('button', { name: 'Speeding up' }).click();
+    await page.waitForTimeout(400);
+    const drifting = (await page.getByTestId('grader-findings').innerText()).trim();
+    if (/speeding up/.test(drifting)) ok('tempo drift is detected as drift, not as lateness');
+    else bad(`drift not reported: ${JSON.stringify(drifting.slice(0, 90))}`);
+
+    // Drift and wobble are different faults, and the inspector has to tell
+    // them apart: a smooth accelerando is steady while it moves, a wandering
+    // pulse moves without going anywhere. Keying either on raw tempo variation
+    // conflates them, which is the bug this preset exists to catch.
+    await page.getByRole('button', { name: 'Wandering pulse' }).click();
+    await page.waitForTimeout(400);
+    const wobbling = (await page.getByTestId('grader-findings').innerText()).trim();
+    if (/unsteady/.test(wobbling) && !/speeding up|slowing down/.test(wobbling)) {
+      ok('a wandering pulse reads as unsteadiness, not as drift');
+    } else {
+      bad(`wobble misreported: ${JSON.stringify(wobbling.slice(0, 120))}`);
+    }
+
+    await page.getByRole('button', { name: 'A missed note' }).click();
+    await page.waitForTimeout(400);
+    const metrics = (await page.getByTestId('grader-metrics').innerText()).trim();
+    if (/1 missed/.test(metrics)) ok('a dropped note is reported as exactly one missed note');
+    else bad(`dropped note not isolated: ${JSON.stringify(metrics.slice(0, 120))}`);
+
+    await page.getByRole('button', { name: 'Human but clean' }).click();
+    await page.waitForTimeout(400);
+    const human = (await page.getByTestId('grader-findings').innerText()).trim();
+    // Melody lead is expert behaviour; faulting it would train the wrong thing.
+    if (!/unevenly/.test(human)) ok('expert melody lead is not faulted');
+    else bad(`melody lead was faulted: ${JSON.stringify(human.slice(0, 90))}`);
+  }
+
   console.log('\n== Console ==');
   const real = consoleErrors.filter((e) => !/favicon|DevTools/i.test(e));
   if (real.length === 0) ok('no console errors');

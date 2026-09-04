@@ -13,6 +13,13 @@ export * from './score/musicxml/parse';
 export * from './score/musicxml/serialize';
 export * from './score/generate/sightReading';
 
+export * from './grading/take';
+export * from './grading/align';
+export * from './grading/tempoMap';
+export * from './grading/metrics';
+export * from './grading/grade';
+export * from './grading/synthesize';
+
 export * from './input/types';
 
 export * from './events/types';
