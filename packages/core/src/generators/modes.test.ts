@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { LADDERS, MODES, generateDrill, gradeDrill, gradeRhythm, modeMeta } from './modes';
+import {
+  LADDERS, MODES, generateDrill, gradeDrill, gradeReading, gradeRhythm, modeMeta,
+} from './modes';
 import { evidenceFor, type ModeId, type Response } from './questions';
 import { makeRng } from './rng';
 import { chordVoicing } from '../theory/chord';
@@ -31,6 +33,8 @@ function perfectResponse(drill: ReturnType<typeof generateDrill>): Response {
           .map((e) => e.beat * msPerBeat),
       };
     }
+    case 'read-notation':
+      return { kind: 'notes', midi: [...q.expected] };
   }
 }
 
@@ -165,6 +169,41 @@ describe('drill generation', () => {
       expect(evidence.length, modeId).toBeGreaterThan(0);
       for (const e of evidence) expect(e.correctness).toBeCloseTo(1, 5);
     }
+  });
+});
+
+describe('reading grading', () => {
+  const expected = [60, 62, 64, 65];
+
+  it('scores a perfect read as correct', () => {
+    const g = gradeReading(expected, [60, 62, 64, 65]);
+    expect(g.correctness).toBe(1);
+    expect(g.correct).toBe(true);
+  });
+
+  it('does not let one wrong note desync the rest', () => {
+    // A single wrong note early must cost one note, not everything after it.
+    const g = gradeReading(expected, [60, 61, 62, 64, 65]);
+    expect(g.correctness).toBeGreaterThan(0.85);
+    expect(g.diagnostics.matched).toBe(4);
+  });
+
+  it('reports missed notes', () => {
+    const g = gradeReading(expected, [60, 62]);
+    expect(g.diagnostics.missed).toBe(2);
+    expect(g.correct).toBe(false);
+    expect(g.detail).toMatch(/missed/);
+  });
+
+  it('penalises extra notes without erasing a mostly-correct read', () => {
+    const g = gradeReading(expected, [60, 62, 64, 65, 67, 69]);
+    expect(g.correctness).toBeLessThan(1);
+    expect(g.correctness).toBeGreaterThan(0.5);
+    expect(g.diagnostics.extraNotes).toBe(2);
+  });
+
+  it('scores an empty attempt as zero', () => {
+    expect(gradeReading(expected, []).correctness).toBe(0);
   });
 });
 

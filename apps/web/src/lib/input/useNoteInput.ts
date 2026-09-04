@@ -110,6 +110,30 @@ export function useCollectedNotes(): {
   return { notes, reset: useCallback(() => setNotes([]), []) };
 }
 
+/**
+ * Every note-on in the order it happened, repeats included.
+ *
+ * The distinction from `useCollectedNotes` is musical, not incidental. A chord
+ * is a *set*: pressing the same key twice while building it must not count
+ * twice. A melody is a *sequence*: repeated notes are ordinary, and order is
+ * the thing being read. Collapsing the two loses half of most phrases.
+ */
+export function useNoteSequence(): {
+  notes: readonly MidiNote[];
+  reset: () => void;
+} {
+  const [notes, setNotes] = useState<MidiNote[]>([]);
+
+  useInputEvents(
+    useCallback((e: InputEvent) => {
+      if (e.type !== 'note-on') return;
+      setNotes((prev) => [...prev, e.midi]);
+    }, []),
+  );
+
+  return { notes, reset: useCallback(() => setNotes([]), []) };
+}
+
 export interface MidiConnection {
   readonly availability: MidiAvailability | null;
   readonly connectedLabel: string | null;

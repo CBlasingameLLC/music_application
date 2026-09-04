@@ -10,6 +10,7 @@ import type { Chord } from '../theory/chord';
 import type { Interval } from '../theory/interval';
 import type { Key } from '../theory/scale';
 import type { MidiNote } from '../theory/pitch';
+import type { Score } from '../score/model';
 import type { SkillEvidence } from '../events/types';
 
 export type ModeId =
@@ -18,7 +19,8 @@ export type ModeId =
   | 'interval-ladder'
   | 'progression-detective'
   | 'key-signature-blitz'
-  | 'rhythm-gauntlet';
+  | 'rhythm-gauntlet'
+  | 'sight-read';
 
 export interface RhythmEvent {
   /** Onset in beats from the start of the pattern. */
@@ -79,6 +81,17 @@ export type Question =
   | {
       readonly kind: 'tap-rhythm';
       readonly pattern: RhythmPattern;
+    }
+  | {
+      readonly kind: 'read-notation';
+      readonly score: Score;
+      /** Serialised for the renderer; the model above is what grading reads. */
+      readonly musicXml: string;
+      /** Expected pitches in playing order, ties already resolved. */
+      readonly expected: readonly MidiNote[];
+      readonly key: Key;
+      readonly tempo: number;
+      readonly hands: 1 | 2;
     };
 
 export type Response =

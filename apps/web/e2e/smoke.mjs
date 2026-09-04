@@ -184,6 +184,54 @@ try {
     }
   }
 
+  console.log('\n== Sight-Read Sprint ==');
+  await page.goto(`${BASE}/play/sight-read`, { waitUntil: 'networkidle' });
+  await page.getByTestId('reading-question').waitFor({ timeout: 15000 });
+  await page.waitForTimeout(1500);
+
+  {
+    const staff = page.getByTestId('score-view');
+    const svgNodes = await staff.locator('svg *').count();
+    if (svgNodes > 30) ok(`engraved staff rendered (${svgNodes} svg nodes)`);
+    else bad(`staff did not engrave, only ${svgNodes} svg nodes`);
+
+    const box = await staff.boundingBox();
+    // Read from a music stand at arm's length: a staff squeezed into a corner
+    // is the failure mode that matters here.
+    if (box && box.width > 600 && box.height > 200) ok(`staff sized for reading: ${Math.round(box.width)}x${Math.round(box.height)}`);
+    else bad(`staff too small to read: ${box ? `${Math.round(box.width)}x${Math.round(box.height)}` : 'none'}`);
+
+    // Play the notated phrase, using the expected sequence the page exposes.
+    const expected = (await page.getByTestId('reading-question').getAttribute('data-expected'))
+      .split(',').filter(Boolean).map(Number);
+    if (expected.length > 0) ok(`phrase has ${expected.length} notes`);
+    else bad('phrase exposed no notes');
+
+    const srKeys = await page.locator('div[role="group"] button').all();
+    const srLabels = await Promise.all(srKeys.map((k) => k.getAttribute('aria-label')));
+    const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const nameOf = (midi) => `${NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
+
+    let offScreen = 0;
+    for (const midi of expected) {
+      const i = srLabels.indexOf(nameOf(midi));
+      if (i >= 0) await srKeys[i].tap();
+      else offScreen += 1;
+    }
+    if (offScreen === 0) ok('every notated pitch was reachable on the keyboard');
+    else bad(`${offScreen} notated pitches were off-screen`);
+
+    const progress = (await page.locator('[data-testid="reading-question"] .tabular').first().innerText()).trim();
+    if (progress === `${expected.length} / ${expected.length}`) ok(`cursor followed the whole phrase: ${progress}`);
+    else bad(`cursor did not follow: ${progress}`);
+
+    await page.getByRole('button', { name: /Finish|Check/ }).click();
+    await page.waitForTimeout(600);
+    const verdict = (await page.locator('[role="status"]').innerText()).trim();
+    if (verdict.startsWith('✓')) ok(`correct read accepted: ${verdict.replace(/\n/g, ' ')}`);
+    else bad(`correct read rejected: ${verdict.replace(/\n/g, ' ')}`);
+  }
+
   console.log('\n== MIDI status is explicit about why ==');
   await page.goto(`${BASE}/diagnostics`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);

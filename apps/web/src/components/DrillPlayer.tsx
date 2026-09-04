@@ -8,8 +8,9 @@ import {
   
 } from '@etude/core';
 import { audio, playCadence } from '@/lib/audio';
-import { useCollectedNotes } from '@/lib/input/useNoteInput';
+import { useCollectedNotes, useNoteSequence } from '@/lib/input/useNoteInput';
 import { Keyboard } from './Keyboard';
+import { ScoreView } from './ScoreView';
 
 export interface DrillPlayerProps {
   readonly drill: Drill;
@@ -79,10 +80,22 @@ export function DrillPlayer({ drill, onAnswered, onNext }: DrillPlayerProps) {
         {q.kind === 'tap-rhythm' && (
           <RhythmQuestion drill={drill} grade={grade} onSubmit={submit} />
         )}
+        {q.kind === 'read-notation' && (
+          <ReadingQuestion
+            drill={drill} grade={grade} scaffolds={scaffolds} onSubmit={submit}
+          />
+        )}
       </div>
 
       {!grade && q.kind === 'play-chord' && (
         <ScaffoldBar active={scaffolds} onToggle={toggleScaffold} available={['keyboard-highlight', 'letter-names']} />
+      )}
+      {!grade && q.kind === 'read-notation' && (
+        <ScaffoldBar
+          active={scaffolds}
+          onToggle={toggleScaffold}
+          available={['fingering', 'keyboard-highlight', 'letter-names']}
+        />
       )}
 
       {grade && <Feedback grade={grade} onNext={onNext} />}
@@ -501,6 +514,100 @@ function SignatureGlyph({ drill }: { drill: Drill }) {
           </span>
         ))
       )}
+    </div>
+  );
+}
+
+function ReadingQuestion({
+  drill, grade, scaffolds, onSubmit,
+}: {
+  drill: Drill;
+  grade: Grade | null;
+  scaffolds: readonly ScaffoldId[];
+  onSubmit: (r: Response) => void;
+}) {
+  // A melody is a sequence, not a set: repeated notes are ordinary and order is
+  // the thing being read, so this must not deduplicate the way a chord does.
+  const { notes: played, reset } = useNoteSequence();
+  useEffect(() => reset(), [drill.id, reset]);
+
+  const q = drill.question;
+  const expected = q.kind === 'read-notation' ? q.expected : [];
+
+  // The cursor tracks how far a correct read has got. It is UI only and has no
+  // grading authority, which is what lets it be forgiving without being wrong.
+  const cursorIndex = useMemo(() => {
+    let i = 0;
+    for (const note of played) {
+      if (i < expected.length && note === expected[i]) i += 1;
+    }
+    return i;
+  }, [played, expected]);
+
+  if (q.kind !== 'read-notation') return null;
+
+  const nextExpected = expected[cursorIndex];
+  const finished = cursorIndex >= expected.length;
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      // A test hook, not user-facing: it lets the end-to-end test play the
+      // notated phrase rather than assert only that pixels appeared.
+      data-testid="reading-question"
+      data-expected={expected.join(',')}
+    >
+      <Prompt hint={`${keyName(q.key)} · ${q.hands === 2 ? 'both hands' : 'right hand'} · play it once`}>
+        <span className="text-[clamp(1.1rem,3vw,1.5rem)] font-semibold">
+          Read and play
+        </span>
+      </Prompt>
+
+      <div className="mx-auto mt-4 w-full max-w-4xl">
+        <ScoreView
+          musicXml={q.musicXml}
+          cursorIndex={cursorIndex}
+          showCursor={!grade}
+          showFingering={scaffolds.includes('fingering')}
+        />
+      </div>
+
+      <div className="mx-auto mt-4 flex w-full max-w-4xl items-center gap-3">
+        <span className="tabular text-sm text-ink-faint">
+          {cursorIndex} / {expected.length}
+        </span>
+        <button
+          type="button"
+          onClick={reset}
+          disabled={!!grade || played.length === 0}
+          className="tap rounded-lg bg-raised px-4 text-sm text-ink-dim disabled:opacity-40"
+        >
+          Restart
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit({ kind: 'notes', midi: [...played] })}
+          disabled={!!grade || played.length === 0}
+          className="tap flex-1 rounded-xl bg-accent px-6 font-bold text-accent-ink disabled:opacity-40"
+        >
+          {finished ? 'Finish' : 'Check'}
+        </button>
+      </div>
+
+      <div className="mt-auto pt-4 pb-4">
+        <Keyboard
+          low={48}
+          octaves={3}
+          disabled={!!grade}
+          keyContext={q.key}
+          showNames={scaffolds.includes('letter-names')}
+          highlight={
+            scaffolds.includes('keyboard-highlight') && !grade && nextExpected !== undefined
+              ? [nextExpected]
+              : []
+          }
+        />
+      </div>
     </div>
   );
 }

@@ -28,6 +28,9 @@ import {
   realizeProgression, romanNumeral,
 } from '../theory/harmony';
 import type { Ladder } from '../progression/ladder';
+import { generateSightReading } from '../score/generate/sightReading';
+import { serializeMusicXml } from '../score/musicxml/serialize';
+import { flattenScore, onsetClusters } from '../score/timeline';
 import { type Rng, makeRng } from './rng';
 import type { Drill, Grade, ModeId, Question, Response, RhythmPattern } from './questions';
 
@@ -71,6 +74,12 @@ export const MODES: readonly ModeMeta[] = [
     tagline: 'Signatures, relatives, and spellings. Fast.',
     why: 'Key signatures should be instant recall. Every second spent counting sharps is a second not spent reading.',
     needsMidi: false, icon: 'bolt',
+  },
+  {
+    id: 'sight-read', name: 'Sight-Read Sprint',
+    tagline: 'A phrase you have never seen. One attempt.',
+    why: 'Reading is a separate skill from playing, and it only improves on material you have not memorised. Every phrase is new and scored on the first attempt — repeating one turns reading into recall.',
+    needsMidi: false, icon: 'staff',
   },
   {
     id: 'rhythm-gauntlet', name: 'Rhythm Gauntlet',
@@ -146,6 +155,23 @@ export const LADDERS: Record<ModeId, Ladder> = {
       { id: 'ks2', name: 'All fifteen', params: { maxFifths: 7, asks: ['accidental-count', 'name-from-signature'] }, skillIds: ['theory.key-signatures.flats'] },
       { id: 'ks3', name: 'Relative minors', params: { maxFifths: 7, asks: ['relative'] }, skillIds: ['theory.scales.minor'] },
       { id: 'ks4', name: 'Scale spelling', params: { maxFifths: 7, asks: ['scale-spelling'] }, skillIds: ['theory.scales.major'] },
+    ],
+  },
+  'sight-read': {
+    modeId: 'sight-read',
+    rungs: [
+      // Graded the way a teacher grades reading: position first, then range,
+      // then rhythm, then a second staff, then key signatures. Leaps come late
+      // — stepwise reading has to be automatic before intervals mean anything.
+      { id: 'sr0', name: 'Five-finger position', params: { keys: ['C-major'], low: 60, high: 67, units: [1], hands: 1, maxLeap: 1, bars: 2 }, skillIds: ['reading.treble.steps'] },
+      { id: 'sr1', name: 'An octave', params: { keys: ['C-major'], low: 60, high: 72, units: [1, 2], hands: 1, maxLeap: 2, bars: 2 }, skillIds: ['reading.treble.steps', 'reading.intervals'] },
+      { id: 'sr2', name: 'Adding eighths', params: { keys: ['C-major', 'G-major'], low: 60, high: 72, units: [1, 0.5, 2], hands: 1, maxLeap: 2, bars: 4 }, skillIds: ['reading.intervals'] },
+      { id: 'sr3', name: 'Leaps', params: { keys: ['C-major', 'G-major', 'F-major'], low: 57, high: 76, units: [1, 0.5, 2], hands: 1, maxLeap: 4, bars: 4 }, skillIds: ['reading.intervals'] },
+      { id: 'sr4', name: 'Both hands', params: { keys: ['C-major', 'G-major', 'F-major'], low: 60, high: 76, units: [1, 0.5, 2], hands: 2, maxLeap: 3, bars: 4 }, skillIds: ['reading.grand-staff'] },
+      { id: 'sr5', name: 'Sharp keys', params: { keys: ['G-major', 'D-major', 'A-major'], low: 57, high: 79, units: [1, 0.5, 2], hands: 2, maxLeap: 4, bars: 4 }, skillIds: ['reading.accidentals'] },
+      { id: 'sr6', name: 'Flat keys', params: { keys: ['F-major', 'Bb-major', 'Eb-major'], low: 55, high: 79, units: [1, 0.5, 2], hands: 2, maxLeap: 4, bars: 4 }, skillIds: ['reading.accidentals'] },
+      { id: 'sr7', name: 'Rests and dots', params: { keys: ['C-major', 'G-major', 'F-major', 'D-major', 'Bb-major'], low: 55, high: 79, units: [1, 0.5, 1.5, 0.25], hands: 2, maxLeap: 4, bars: 4, rests: true }, skillIds: ['reading.sight-reading', 'rhythm.dotted'] },
+      { id: 'sr8', name: 'Ledger lines', params: { keys: ['C-major', 'G-major', 'F-major', 'D-major', 'Eb-major'], low: 48, high: 84, units: [1, 0.5, 1.5, 0.25], hands: 2, maxLeap: 5, bars: 4, rests: true }, skillIds: ['reading.ledger-lines', 'reading.sight-reading'] },
     ],
   },
   'rhythm-gauntlet': {
@@ -398,6 +424,45 @@ export function generateDrill(opts: GenerateOptions): Drill {
       baseXp = 50 + idx * 8;
       break;
     }
+
+    case 'sight-read': {
+      const keyIds = list<string>(p, 'keys', ['C-major']);
+      const key = keyById(rng.pick(keyIds));
+      const hands = (num(p, 'hands', 1) === 2 ? 2 : 1) as 1 | 2;
+
+      const score = generateSightReading(
+        {
+          key,
+          bars: num(p, 'bars', 4),
+          timeSignature: { beats: 4, beatType: 4 },
+          range: [num(p, 'low', 60), num(p, 'high', 72)],
+          hands,
+          rhythmUnits: list<number>(p, 'units', [1]),
+          maxLeap: num(p, 'maxLeap', 2),
+          stepBias: 0.75,
+          allowRests: bool(p, 'rests'),
+          tempo: 72,
+        },
+        opts.seed,
+      );
+
+      // Expected pitches in playing order. Rests carry no onset to play, and
+      // ties are already resolved by the timeline, so this is exactly the
+      // sequence of attacks the reader should produce.
+      const expected = onsetClusters(flattenScore(score)).flatMap((c) => c.pitches);
+
+      question = {
+        kind: 'read-notation',
+        score,
+        musicXml: serializeMusicXml(score),
+        expected,
+        key,
+        tempo: 72,
+        hands,
+      };
+      baseXp = 70 + idx * 10;
+      break;
+    }
   }
 
   return {
@@ -532,7 +597,71 @@ export function gradeDrill(drill: Drill, response: Response): Grade {
       if (response.kind !== 'taps') return wrongShape();
       return gradeRhythm(q.pattern, response.offsetsMs);
     }
+
+    case 'read-notation': {
+      if (response.kind !== 'notes') return wrongShape();
+      return gradeReading(q.expected, response.midi);
+    }
   }
+}
+
+/**
+ * Grade a read phrase against what was played.
+ *
+ * Greedy forward matching that tolerates extra notes: on a mismatch it advances
+ * only the played list, so one wrong note costs one note rather than desyncing
+ * everything after it. That cascade is the specific failure the affine-gap
+ * aligner will remove properly; this keeps the mode honest until then.
+ */
+export function gradeReading(
+  expected: readonly MidiNote[],
+  played: readonly MidiNote[],
+): Grade {
+  if (expected.length === 0) {
+    return { correctness: 0, correct: false, detail: 'Nothing to read.', diagnostics: {} };
+  }
+
+  let matched = 0;
+  let expectedIndex = 0;
+  let extra = 0;
+
+  for (const note of played) {
+    if (expectedIndex >= expected.length) {
+      extra += 1;
+      continue;
+    }
+    if (note === expected[expectedIndex]) {
+      matched += 1;
+      expectedIndex += 1;
+    } else {
+      extra += 1;
+    }
+  }
+
+  const missed = expected.length - matched;
+  const accuracy = matched / expected.length;
+  // Extra notes are penalised, but never enough to erase a mostly-correct read.
+  const correctness = Math.max(0, Math.min(1, accuracy * Math.max(0.4, 1 - extra * 0.08)));
+
+  return {
+    correctness,
+    correct: matched === expected.length && extra === 0,
+    detail:
+      matched === expected.length && extra === 0
+        ? `All ${expected.length} notes, first time.`
+        : missed > 0 && extra > 0
+          ? `${matched} of ${expected.length} correct, with ${extra} extra note${extra > 1 ? 's' : ''}.`
+          : missed > 0
+            ? `${matched} of ${expected.length} — ${missed} missed.`
+            : `All notes found, plus ${extra} extra.`,
+    diagnostics: {
+      matched,
+      expected: expected.length,
+      missed,
+      extraNotes: extra,
+      accuracy,
+    },
+  };
 }
 
 function wrongShape(): Grade {

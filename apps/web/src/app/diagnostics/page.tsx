@@ -113,41 +113,49 @@ export default function DiagnosticsPage() {
     }
 
     // --- Audio -------------------------------------------------------------
+    //
+    // Every audio row is emitted regardless of outcome. A diagnostics page that
+    // silently drops rows it could not measure is worse than useless: it makes
+    // "not measured" indistinguishable from "not applicable", which is exactly
+    // the ambiguity you are here to resolve.
+    let ctx: AudioContext | null = null;
     try {
       // Autoplay policy leaves `resume()` pending indefinitely until a user
-      // gesture — it does not reject. Awaiting it bare would hang this whole
-      // page, which is the opposite of what a diagnostics screen is for.
-      const ctx = await withTimeout(
+      // gesture — it does not reject. Awaiting it bare would hang this page.
+      ctx = await withTimeout(
         audio.resume(),
         2500,
-        'AudioContext is suspended pending a user gesture',
+        'suspended pending a user gesture, or no audio device',
       );
       out.push({
         label: 'AudioContext',
         value: `${ctx.sampleRate} Hz, state ${ctx.state}`,
         status: ctx.state === 'running' ? 'good' : 'warn',
       });
-      out.push({
-        label: 'Output latency',
-        value: `${audio.outputLatencyMs.toFixed(1)} ms`,
-        status: audio.outputLatencyMs > 200 ? 'warn' : 'good',
-        note: 'Subtracted from every timing measurement taken against the click. A large value here is fine for playing — your piano makes its own sound — but it must be compensated when grading.',
-      });
-      const ts = ctx.getOutputTimestamp?.();
-      out.push({
-        label: 'getOutputTimestamp',
-        value: ts && ts.contextTime !== undefined ? 'available' : 'unavailable',
-        status: ts && ts.contextTime !== undefined ? 'good' : 'warn',
-        note: 'Maps the audio clock onto performance.now(). Without it, MIDI timestamps and scheduled beats drift apart silently.',
-      });
     } catch (err) {
       out.push({
         label: 'AudioContext',
-        value: (err as Error).message,
+        value: `unavailable — ${(err as Error).message}`,
         status: 'warn',
-        note: 'Tap anywhere on the page, then re-run. Browsers hold audio suspended until you interact.',
+        note: 'Tap anywhere on the page, then re-run. Browsers hold audio suspended until you interact, and a machine with no audio device never starts one at all.',
       });
     }
+
+    out.push({
+      label: 'Output latency',
+      value: ctx ? `${audio.outputLatencyMs.toFixed(1)} ms` : 'not measured',
+      status: !ctx ? 'warn' : audio.outputLatencyMs > 200 ? 'warn' : 'good',
+      note: 'Subtracted from every timing measurement taken against the click. A large value is fine for playing — your piano makes its own sound — but it must be compensated when grading, or a steady player reads as consistently behind the beat.',
+    });
+
+    const timestamp = ctx?.getOutputTimestamp?.();
+    const hasTimestamp = !!timestamp && timestamp.contextTime !== undefined;
+    out.push({
+      label: 'getOutputTimestamp',
+      value: !ctx ? 'not measured' : hasTimestamp ? 'available' : 'unavailable',
+      status: hasTimestamp ? 'good' : 'warn',
+      note: 'Maps the audio clock onto performance.now(). Without it, MIDI timestamps and scheduled beats drift apart silently.',
+    });
 
     // --- Storage -----------------------------------------------------------
     const persistence = await requestPersistence();
