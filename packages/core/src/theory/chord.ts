@@ -18,7 +18,7 @@ import {
   stepFromIndex,
   stepIndex,
   toMidi,
-} from './pitch.js';
+} from './pitch';
 
 export type ChordQuality =
   | 'major' | 'minor' | 'diminished' | 'augmented'

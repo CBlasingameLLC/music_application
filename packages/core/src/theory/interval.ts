@@ -16,9 +16,9 @@ import {
   diatonicPosition,
   mod7,
   stepFromIndex,
-  stepIndex,
+  
   toMidi,
-} from './pitch.js';
+} from './pitch';
 
 export type IntervalQuality =
   | 'perfect'
@@ -307,5 +307,3 @@ export function intervalFromSemitones(semitones: number, direction: 1 | -1 = 1):
   const [baseNumber, quality] = entry;
   return { number: baseNumber + octaves * 7, quality, direction };
 }
-
-export { stepIndex };

@@ -1,0 +1,33 @@
+{
+  "name": "@etude/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node e2e/smoke.mjs"
+  },
+  "dependencies": {
+    "@etude/core": "workspace:*",
+    "dexie": "4.4.5",
+    "dexie-react-hooks": "4.4.0",
+    "next": "15.5.25",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ulid": "3.0.2"
+  },
+  "devDependencies": {
+    "@serwist/next": "9.5.12",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.15.3",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.1",
+    "playwright": "1.56.1",
+    "serwist": "9.5.12",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}

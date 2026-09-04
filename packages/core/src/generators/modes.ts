@@ -12,24 +12,24 @@
 
 import {
   type MidiNote, type SpelledPitch, mod12, parsePitch, toMidi,
-} from '../theory/pitch.js';
+} from '../theory/pitch';
 import {
   type Chord, type ChordQuality, chordSymbol, chordVoicing, matchesChord,
-} from '../theory/chord.js';
+} from '../theory/chord';
 import {
-  type Interval, intervalAbbrev, intervalBetween, intervalFromSemitones, intervalName,
-} from '../theory/interval.js';
+  type Interval, intervalAbbrev, intervalFromSemitones, intervalName,
+} from '../theory/interval';
 import {
-  type Key, allKeys, keyFifths, keyId, keyName, keySignatureAccidentals,
-  keyScale, relativeKey, scaleDegreeOf, spellInKey,
-} from '../theory/scale.js';
+  type Key, allKeys, keyFifths, keyId, keyName, keyScale, relativeKey,
+  scaleDegreeOf, spellInKey,
+} from '../theory/scale';
 import {
-  CADENCES, PROGRESSIONS, chordOnDegree, diatonicSevenths, diatonicTriads,
+  CADENCES, PROGRESSIONS, diatonicTriads,
   realizeProgression, romanNumeral,
-} from '../theory/harmony.js';
-import type { Ladder } from '../progression/ladder.js';
-import { type Rng, makeRng } from './rng.js';
-import type { Drill, Grade, ModeId, Question, Response, RhythmPattern } from './questions.js';
+} from '../theory/harmony';
+import type { Ladder } from '../progression/ladder';
+import { type Rng, makeRng } from './rng';
+import type { Drill, Grade, ModeId, Question, Response, RhythmPattern } from './questions';
 
 export interface ModeMeta {
   readonly id: ModeId;
@@ -653,6 +653,3 @@ export function gradeRhythm(pattern: RhythmPattern, offsetsMs: readonly number[]
     },
   };
 }
-
-export { diatonicSevenths, chordOnDegree, keySignatureAccidentals, intervalBetween };
-export type { Interval };

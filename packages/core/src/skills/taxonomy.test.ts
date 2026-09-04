@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DOMAINS, SKILLS, keyboardFreeSkills, skill, skillsInDomain, unlockedSkills,
   validateSkillGraph,
-} from './taxonomy.js';
+} from './taxonomy';
 
 describe('skill graph', () => {
   it('is acyclic with every prerequisite defined', () => {

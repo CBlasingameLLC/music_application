@@ -14,8 +14,8 @@
  *     learning, which is precisely the trap this app exists to avoid.
  */
 
-import type { DomainId } from '../skills/taxonomy.js';
-import type { DueItem } from './scheduler.js';
+import type { DomainId } from '../skills/taxonomy';
+import type { DueItem } from './scheduler';
 
 export type SlotId = 'warmup' | 'weakest' | 'reading' | 'ear-theory' | 'repertoire';
 

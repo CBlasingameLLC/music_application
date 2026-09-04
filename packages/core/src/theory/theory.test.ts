@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   isBlackKey, parsePitch, pitchId, spellMidi, toMidi, type SpelledPitch,
-} from './pitch.js';
+} from './pitch';
 import {
   intervalAbbrev, intervalBetween, intervalFromSemitones, intervalName,
   interval, invert, parseInterval, transpose,
-} from './interval.js';
+} from './interval';
 import {
   allKeys, keyFifths, keyId, keySignatureAccidentals, keyName, parallelKey,
   relativeKey, scaleDegreeOf, scaleNotes, spellInKey, type Key,
-} from './scale.js';
+} from './scale';
 import {
   bassNoteOf, chordId, chordSymbol, chordTones, chordVoicing, detectChord,
   inversionFigure, matchesChord, parseChordSymbol,
-} from './chord.js';
+} from './chord';
 
 const P = (s: string): SpelledPitch => {
   const p = parsePitch(s);

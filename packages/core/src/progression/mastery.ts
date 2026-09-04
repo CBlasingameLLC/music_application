@@ -10,7 +10,7 @@
  * slowly and consolidate with sleep rather than with review.
  */
 
-import type { SkillKind } from '../skills/taxonomy.js';
+import type { SkillKind } from '../skills/taxonomy';
 
 export interface MasteryState {
   readonly skillId: string;

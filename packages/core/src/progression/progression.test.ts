@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyEvidence, currentMastery, dueAt, initialMastery, masteryBand,
-} from './mastery.js';
+} from './mastery';
 import {
   initialStreak, localDay, practicedToday, recordQualifyingDay, streakIsAlive,
-} from './streak.js';
-import { computeXp, levelForXp, xpForLevel } from './xp.js';
+} from './streak';
+import { computeXp, levelForXp, xpForLevel } from './xp';
 import {
   DEMOTE_AT, PROMOTE_AT, WINDOW, currentRung, initialLadderState, recordAttempt,
   type Ladder,
-} from './ladder.js';
+} from './ladder';
 import {
   buildDueQueue, gradeFromPerformance, motorDueAt, newDeclarativeCard, newMotorState,
   retrievability, reviewDeclarative, reviewMotor, Rating,
-} from './scheduler.js';
+} from './scheduler';
 
 const day = (n: number) => {
   const d = new Date('2026-03-01T12:00:00Z');

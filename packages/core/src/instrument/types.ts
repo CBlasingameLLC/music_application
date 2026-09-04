@@ -11,7 +11,7 @@
  * where `pitchToPositions` always returns exactly one element.
  */
 
-import type { MidiNote } from '../theory/pitch.js';
+import type { MidiNote } from '../theory/pitch';
 
 export type InstrumentId = 'piano' | 'guitar';
 

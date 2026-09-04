@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { LADDERS, MODES, generateDrill, gradeDrill, gradeRhythm, modeMeta } from './modes.js';
-import { evidenceFor, type ModeId, type Response } from './questions.js';
-import { makeRng } from './rng.js';
-import { chordVoicing } from '../theory/chord.js';
-import { intervalAbbrev } from '../theory/interval.js';
-import { SKILLS } from '../skills/taxonomy.js';
+import { LADDERS, MODES, generateDrill, gradeDrill, gradeRhythm, modeMeta } from './modes';
+import { evidenceFor, type ModeId, type Response } from './questions';
+import { makeRng } from './rng';
+import { chordVoicing } from '../theory/chord';
+import { intervalAbbrev } from '../theory/interval';
+import { SKILLS } from '../skills/taxonomy';
 
 const MODE_IDS = MODES.map((m) => m.id);
 

@@ -6,11 +6,11 @@
  * itself and how much evidence a result provides for which skills.
  */
 
-import type { Chord } from '../theory/chord.js';
-import type { Interval } from '../theory/interval.js';
-import type { Key } from '../theory/scale.js';
-import type { MidiNote } from '../theory/pitch.js';
-import type { SkillEvidence } from '../events/types.js';
+import type { Chord } from '../theory/chord';
+import type { Interval } from '../theory/interval';
+import type { Key } from '../theory/scale';
+import type { MidiNote } from '../theory/pitch';
+import type { SkillEvidence } from '../events/types';
 
 export type ModeId =
   | 'chord-sprint'

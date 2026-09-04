@@ -1,0 +1,126 @@
+@import 'tailwindcss';
+
+/*
+ * Étude's visual system.
+ *
+ * Designed for a 10" tablet on a music stand, at arm's length, usually in a
+ * dim room, operated with one hand while the other is on the keys. That drives
+ * every decision here: a dark ground so it does not glare off the music desk,
+ * type large enough to read at distance, touch targets sized for a glance
+ * rather than a look, and no hover-dependent affordances anywhere.
+ */
+
+@theme {
+  /* Ground and surfaces. Very slightly blue so it reads as neutral rather
+     than muddy under warm room light. */
+  --color-ground: oklch(0.155 0.008 265);
+  --color-surface: oklch(0.205 0.011 265);
+  --color-raised: oklch(0.253 0.013 265);
+  --color-hairline: oklch(0.318 0.016 265);
+  --color-hairline-strong: oklch(0.42 0.02 265);
+
+  --color-ink: oklch(0.965 0.004 265);
+  --color-ink-dim: oklch(0.755 0.011 265);
+  --color-ink-faint: oklch(0.60 0.013 265);
+
+  /* A single warm accent, like backlit studio gear. Used sparingly. */
+  --color-accent: oklch(0.79 0.135 76);
+  --color-accent-dim: oklch(0.62 0.11 76);
+  --color-accent-ink: oklch(0.18 0.03 76);
+
+  --color-good: oklch(0.76 0.15 155);
+  --color-bad: oklch(0.68 0.18 25);
+  --color-warn: oklch(0.80 0.14 85);
+
+  /* Per-domain hues, matching DOMAINS in @etude/core so the map and the
+     progress bars agree without a second source of truth. */
+  --color-d-reading: oklch(0.70 0.14 250);
+  --color-d-rhythm: oklch(0.74 0.15 30);
+  --color-d-ear: oklch(0.74 0.14 155);
+  --color-d-theory: oklch(0.72 0.14 300);
+  --color-d-technique: oklch(0.72 0.13 200);
+  --color-d-independence: oklch(0.71 0.16 15);
+  --color-d-repertoire: oklch(0.75 0.14 85);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  --radius-panel: 1rem;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    /* Slightly larger base than the web default: this is read at arm's length,
+       not at desk distance. */
+    font-size: 17px;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-ground);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    /* Practice means repeated fast taps. Neither of these should ever fire. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    overscroll-behavior: none;
+  }
+
+  /* Numbers that change in place — timers, tempi, scores — must not reflow. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  button,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /*
+   * Every interactive control clears 48px. A drill is answered under time
+   * pressure with one hand while the other stays on the keys; a missed tap
+   * costs the attempt, so the target is sized for a glance.
+   */
+  .tap {
+    min-height: 3rem;
+    min-width: 3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-panel);
+  }
+}
+
+/* Respect the user's motion preference; celebration animations are the first
+   thing to go. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

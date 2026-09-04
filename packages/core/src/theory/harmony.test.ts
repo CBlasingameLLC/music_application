@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parsePitch, type SpelledPitch } from './pitch.js';
-import { chordId, chordSymbol, type Chord } from './chord.js';
-import { allKeys, keyId, type Key } from './scale.js';
+import { parsePitch, type SpelledPitch } from './pitch';
+import { chordId, chordSymbol, type Chord } from './chord';
+import { allKeys, keyId, type Key } from './scale';
 import {
   CADENCES, PROGRESSIONS, chordFromRomanNumeral, chordOnDegree, diatonicSevenths,
   diatonicTriads, realizeProgression, romanNumeral, secondaryDominantOf,
-} from './harmony.js';
+} from './harmony';
 
 const P = (s: string): SpelledPitch => {
   const p = parsePitch(s);

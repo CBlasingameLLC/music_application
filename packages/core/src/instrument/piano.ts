@@ -1,7 +1,7 @@
 /** The piano: the degenerate, bijective case of the instrument abstraction. */
 
-import { PIANO_HIGHEST, PIANO_LOWEST, isBlackKey, type MidiNote } from '../theory/pitch.js';
-import type { Fingering, HandId, Instrument, Position } from './types.js';
+import { PIANO_HIGHEST, PIANO_LOWEST, isBlackKey, type MidiNote } from '../theory/pitch';
+import type { Fingering, HandId, Instrument, Position } from './types';
 
 export const piano: Instrument = {
   id: 'piano',
