@@ -318,6 +318,99 @@ try {
     else bad(`probe missing: ${key}`);
   }
 
+  console.log('\n== Trends ==');
+  await page.goto(`${BASE}/progress`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1200);
+  {
+    // Empty first. This is the state the app actually opens in, and a chart
+    // that drew a slope through nothing would be worse than one that says so.
+    const empty = await page.locator('body').innerText();
+    if (/Not enough history yet/.test(empty)) {
+      ok('an empty log says so rather than drawing a trend');
+    } else {
+      bad('empty dashboard did not disclose that it has no history');
+    }
+
+    // Seed ten days of practice straight into the log, the way the app writes
+    // it, so the replay is exercised on real stored events.
+    const seeded = await page.evaluate(async () => {
+      const db = await new Promise((res, rej) => {
+        const req = indexedDB.open('etude');
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const skills = ['theory.note-names', 'rhythm.eighth', 'ear.degrees.diatonic'];
+      const rows = [];
+      let n = 0;
+      const pad = (v) => String(v).padStart(10, '0');
+      const start = Date.now() - 10 * 86400000;
+      for (let d = 0; d < 10; d++) {
+        const at = new Date(start + d * 86400000).toISOString();
+        for (let i = 0; i < 12; i++) {
+          const attemptId = `sa-${d}-${i}`;
+          rows.push({ id: `Z${pad(n++)}`, streamId: 'practice', seq: n, type: 'Activity.Attempted',
+            v: 1, at, deviceId: 'seed', appVersion: '0.1.0',
+            payload: { attemptId, activityId: `sact-${i % 4}`, sessionId: null, responseMs: 2500, response: null, scaffolds: [] } });
+          rows.push({ id: `Z${pad(n++)}`, streamId: 'practice', seq: n, type: 'Activity.Graded',
+            v: 1, at, deviceId: 'seed', appVersion: '0.1.0',
+            payload: { attemptId, correctness: 0.92, latencyMs: 2500,
+              diagnostics: { meanAbsDeviationMs: 20 + ((i * 13) % 70) },
+              skillEvidence: [{ skillId: skills[i % skills.length], correctness: 0.92, weight: 1 }],
+              xpAwarded: 12, graderVersion: 1 } });
+        }
+        rows.push({ id: `Z${pad(n++)}`, streamId: 'practice', seq: n, type: 'Session.Ended',
+          v: 1, at, deviceId: 'seed', appVersion: '0.1.0',
+          payload: { sessionId: `ss${d}`, elapsedSeconds: 900, completedActivities: 12 } });
+      }
+      await new Promise((res, rej) => {
+        const tx = db.transaction('events', 'readwrite');
+        const store = tx.objectStore('events');
+        for (const row of rows) store.put(row);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+      return rows.length;
+    });
+    ok(`seeded ${seeded} events into the log`);
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(2500);
+
+    const sparklines = await page.locator('[data-testid^="trend-"] svg').count();
+    if (sparklines > 0) ok(`${sparklines} domain trends drawn`);
+    else bad('no domain trend was drawn after seeding');
+
+    // A domain nothing touched must say so rather than draw a flat zero line,
+    // which would read as a measurement that did not move.
+    const trendText = await page.getByTestId('domain-trends').innerText();
+    if (/not started/.test(trendText)) ok('untouched domains say "not started"');
+    else bad('an untouched domain drew a line instead of disclosing no data');
+
+    const bars = await page.locator('[data-testid="practice-chart"] button').count();
+    if (bars >= 10) ok(`practice chart has ${bars} days including gaps`);
+    else bad(`practice chart drew only ${bars} days`);
+
+    if (/median/.test(await page.getByTestId('timing-distribution').innerText())) {
+      ok('timing distribution reports a median');
+    } else {
+      bad('timing distribution did not populate');
+    }
+
+    // The load-bearing check: the trend's last point must agree with what the
+    // home page reports now. If they disagree the dashboard is lying about the
+    // same number shown elsewhere.
+    const trendPercent = Number((trendText.match(/Rhythm\s+(\d+)%/) ?? [])[1] ?? -1);
+    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1500);
+    const home = await page.locator('body').innerText();
+    const homePercent = Number((home.match(/Rhythm[\s\S]{0,120}?(\d+)\s*$/m) ?? [])[1] ?? -2);
+    if (trendPercent >= 0 && Math.abs(trendPercent - homePercent) <= 1) {
+      ok(`trend endpoint agrees with the home page (${trendPercent}% vs ${homePercent}%)`);
+    } else {
+      bad(`trend says ${trendPercent}% but home page says ${homePercent}%`);
+    }
+  }
+
   console.log('\n== Independence Lab ==');
   await page.goto(`${BASE}/play/independence`, { waitUntil: 'networkidle' });
   {
