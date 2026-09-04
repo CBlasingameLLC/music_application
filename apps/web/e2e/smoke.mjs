@@ -232,6 +232,64 @@ try {
     else bad(`correct read rejected: ${verdict.replace(/\n/g, ' ')}`);
   }
 
+  console.log('\n== Library: import round-trip ==');
+  await page.goto(`${BASE}/library`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+
+  {
+    for (const title of ['Ode to Joy', 'Contrary Motion Study', 'Two Against One']) {
+      if (await page.getByText(title).first().isVisible()) ok(`bundled piece listed: ${title}`);
+      else bad(`bundled piece missing: ${title}`);
+    }
+    if (await page.getByText(/PD-composition/).first().isVisible()) ok('licence shown for bundled pieces');
+    else bad('licence not shown');
+
+    // A minimal MuseScore-shaped export, uploaded as a real file.
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <work><work-title>Imported Test Piece</work-title></work>
+  <identification><creator type="composer">A. Composer</creator></identification>
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>2</divisions><key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><type>quarter</type></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    await page.setInputFiles('input[type="file"]', {
+      name: 'test-piece.musicxml',
+      mimeType: 'application/xml',
+      buffer: Buffer.from(xml, 'utf-8'),
+    });
+    await page.waitForTimeout(1800);
+
+    if (await page.getByText('Imported Test Piece').first().isVisible()) {
+      ok('imported score appears in the library');
+    } else bad('imported score did not appear');
+
+    if (await page.getByText('private to this device').first().isVisible()) {
+      ok('import is marked private by default');
+    } else bad('import was not marked private');
+
+    const previewNodes = await page.getByTestId('score-view').locator('svg *').count();
+    if (previewNodes > 20) ok(`imported score engraved (${previewNodes} svg nodes)`);
+    else bad(`imported score did not engrave, ${previewNodes} svg nodes`);
+
+    // It must survive a reload — the point of storing it on the device.
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(900);
+    if (await page.getByText('Imported Test Piece').first().isVisible()) {
+      ok('imported score persists across a reload');
+    } else bad('imported score did not persist');
+  }
+
   console.log('\n== MIDI status is explicit about why ==');
   await page.goto(`${BASE}/diagnostics`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);

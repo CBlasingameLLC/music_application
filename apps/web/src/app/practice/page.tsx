@@ -100,9 +100,14 @@ export default function PracticePage() {
       </section>
 
       <section className="mt-10">
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-ink-faint">
-          Or pick a drill
-        </h2>
+        <div className="mb-1 flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-faint">
+            Or pick a drill
+          </h2>
+          <Link href="/library" className="text-sm text-ink-faint underline">
+            Library
+          </Link>
+        </div>
         <p className="mb-4 text-sm text-ink-faint">
           Free practice counts toward your day and your streak exactly the same.
         </p>

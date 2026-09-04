@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // @etude/core ships TypeScript source rather than a build artifact, so the
   // monorepo needs no build step and edits are picked up immediately.
-  transpilePackages: ['@etude/core'],
+  transpilePackages: ['@etude/core', '@etude/content'],
   typedRoutes: false,
 };
 

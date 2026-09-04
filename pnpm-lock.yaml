@@ -10,6 +10,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@etude/content':
+        specifier: workspace:*
+        version: link:../../packages/content
       '@etude/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -65,6 +68,19 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+
+  packages/content:
+    dependencies:
+      '@etude/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.0
+        version: 5.0.0(@types/node@22.15.3)(vite@8.2.2(@types/node@22.15.3)(jiti@2.7.0))
 
   packages/core:
     dependencies:

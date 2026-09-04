@@ -11,6 +11,7 @@
     "test:e2e": "node e2e/smoke.mjs"
   },
   "dependencies": {
+    "@etude/content": "workspace:*",
     "@etude/core": "workspace:*",
     "dexie": "4.4.5",
     "dexie-react-hooks": "4.4.0",
