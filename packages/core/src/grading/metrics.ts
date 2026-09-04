@@ -362,30 +362,10 @@ export function computeMetrics(input: MetricsInput): PerformanceMetrics {
     }
   }
 
-  // --- Left-hand onsets swallowed by a right-hand cluster --------------------
-  //
-  // A deleted left-hand cluster whose pitch appears in a nearby performed
-  // cluster was not missed; it was played on top of the other hand.
-  let mergedCount = 0;
-  let leftOnlyDeletions = 0;
-  for (const step of alignment.steps) {
-    if (step.kind !== 'deletion' || step.expectedIndex === null) continue;
-    const cluster = expected[step.expectedIndex];
-    if (!cluster) continue;
-    const isLeftOnly =
-      cluster.notes.some((n) => n.staff === 2) && !cluster.notes.some((n) => n.staff === 1);
-    if (!isLeftOnly) continue;
 
-    leftOnlyDeletions += 1;
-    const predictedMs = tempoMap.predict(cluster.absoluteBeats);
-    const swallowed = performed.some(
-      (p) =>
-        Math.abs(p.onsetMs - predictedMs) < 400 &&
-        cluster.pitches.some((pitch) => p.pitches.includes(pitch)),
-    );
-    if (swallowed) mergedCount += 1;
-  }
-  const mergedLeftHand = { merged: mergedCount, total: leftOnlyDeletions };
+  // Entrainment, from the shared measure. Computed here rather than inside
+  // computeIndependence because it needs the notated grid, not the residuals.
+  const entrainment = measureEntrainment({ expected, performed, alignment });
 
   // --- Where the errors are, which is the most actionable output there is ---
   const errorsByMeasure = new Map<number, number>();
@@ -427,18 +407,149 @@ export function computeMetrics(input: MetricsInput): PerformanceMetrics {
       .map(([measureNumber, errors]) => ({ measureNumber, errors }))
       .sort((a, b) => b.errors - a.errors),
     independence: hasBothHands
-      ? computeIndependence(residuals, take, mergedLeftHand)
+      ? computeIndependence(residuals, take, entrainment)
       : null,
+  };
+}
+
+/**
+ * How far one hand is being pulled onto the other's beats, 0-1.
+ *
+ * Measured as a *phase*, which is what makes it trustworthy. A note notated
+ * between two of the other hand's onsets sits at a known fraction of the way
+ * between them — a left hand on the offbeat is at 0.5, a triplet's second note
+ * at 1/3. Entrainment is that fraction collapsing toward 0 or 1, because
+ * landing on 0 or 1 *is* playing together.
+ *
+ * Working in phase rather than in milliseconds means no absolute time
+ * reference is needed: it is a ratio between events the player actually
+ * produced, so it survives any tempo, any drift, and a take that has fallen
+ * apart entirely. Three earlier attempts here all failed for want of that.
+ *
+ *  - Comparing each residual's *sign* against the nearest other-hand onset was
+ *    knife-edge unstable: on one fixture a 4 ms jitter difference swung the
+ *    result from 0.97 to 0.16, because a sign test with a fixed threshold sits
+ *    right on the tempo map's smoothing boundary.
+ *  - Measuring displacement against the *fitted* tempo map lost the worst
+ *    takes: fitting a map to a fully collapsed 3:1 take produced 0.9 BPM and
+ *    put beat 1 at 70 seconds, so the collapse became unmeasurable.
+ *  - Measuring against a target-tempo grid needed an anchor, and material where
+ *    the hands never coincide offers none — a constant shift of one hand is
+ *    indistinguishable from a constant shift of the other.
+ *
+ * It also does not care *which* hand is being captured. At 2:1 or 3:1 the left
+ * hand coincides with a right-hand note on every one of its onsets, and it is
+ * the right hand's offbeats that collapse onto the beat; a measure that only
+ * inspects the left hand reads a confident zero on exactly those exercises.
+ */
+export interface EntrainmentInput {
+  readonly expected: readonly OnsetCluster[];
+  readonly performed: readonly PerformedCluster[];
+  readonly alignment: Alignment;
+}
+
+export function measureEntrainment(
+  input: EntrainmentInput,
+): { value: number; considered: number } | null {
+  const { expected, performed, alignment } = input;
+
+  // Identity comes from the alignment, not from hunting for a pitch by time:
+  // the same pitch recurs many times in an ostinato, so a nearest-match search
+  // lands wherever it likes. The alignment is what already answers "which
+  // played cluster is this notated one".
+  const playedAt = new Map<number, number>();
+  for (const pair of alignedPairs(alignment)) {
+    const performedCluster = performed[pair.performedIndex];
+    if (performedCluster) playedAt.set(pair.expectedIndex, performedCluster.onsetMs);
+  }
+
+  const carries = (cluster: OnsetCluster, left: boolean): boolean =>
+    cluster.notes.some((n) => (n.staff === 2) === left);
+
+  const fractions: number[] = [];
+
+  for (let i = 0; i < expected.length; i++) {
+    const cluster = expected[i];
+    if (!cluster) continue;
+    const hasLeft = carries(cluster, true);
+    const hasRight = carries(cluster, false);
+    // A note already sounding with the other hand has nowhere to be pulled.
+    if (hasLeft === hasRight) continue;
+    const otherIsLeft = !hasLeft;
+
+    // The other hand's onsets that bracket this one, and that were matched.
+    let before: number | null = null;
+    let beforeBeats = 0;
+    let after: number | null = null;
+    let afterBeats = 0;
+    for (let k = i - 1; k >= 0; k--) {
+      const c = expected[k];
+      const at = playedAt.get(k);
+      if (c && at !== undefined && carries(c, otherIsLeft)) {
+        before = at; beforeBeats = c.absoluteBeats; break;
+      }
+    }
+    for (let k = i + 1; k < expected.length; k++) {
+      const c = expected[k];
+      const at = playedAt.get(k);
+      if (c && at !== undefined && carries(c, otherIsLeft)) {
+        after = at; afterBeats = c.absoluteBeats; break;
+      }
+    }
+    if (before === null || after === null) continue;
+
+    const span = afterBeats - beforeBeats;
+    const playedSpan = after - before;
+    if (span <= 1e-9 || playedSpan <= 1e-6) continue;
+
+    const notatedPhase = (cluster.absoluteBeats - beforeBeats) / span;
+    if (notatedPhase <= 1e-6 || notatedPhase >= 1 - 1e-6) continue;
+
+    const ownMs = playedAt.get(i);
+    if (ownMs === undefined) {
+      // Unmatched between two matched neighbours of the other hand. Under
+      // severe entrainment the note lands exactly on one of them and the
+      // clusterer merges the two, so there is nothing left to match — and
+      // skipping it would drop precisely the worst takes.
+      const swallowed = performed.some(
+        (p) =>
+          (Math.abs(p.onsetMs - before) < 60 || Math.abs(p.onsetMs - after) < 60) &&
+          cluster.pitches.some((pitch) => p.pitches.includes(pitch)),
+      );
+      if (swallowed) fractions.push(1);
+      continue;
+    }
+
+    const playedPhase = (ownMs - before) / playedSpan;
+
+    // How far it travelled toward whichever coincidence it moved toward, as a
+    // fraction of the distance available in that direction. 0 is where it was
+    // written, 1 is dead on top of the other hand.
+    const toward = playedPhase < notatedPhase
+      ? (notatedPhase - playedPhase) / notatedPhase
+      : (playedPhase - notatedPhase) / (1 - notatedPhase);
+
+    fractions.push(Math.max(0, Math.min(1, toward)));
+  }
+
+  if (fractions.length === 0) return null;
+  return {
+    value: fractions.reduce((a, b) => a + b, 0) / fractions.length,
+    considered: fractions.length,
   };
 }
 
 /**
  * The three measures that actually characterise hand independence.
  *
- * Entrainment is the primary one: when the hands have different notated
- * rhythms, does the left-hand onset drift toward the nearest right-hand onset?
- * That is one hand capturing the other, and it is what makes hands-together
- * collapse.
+ * Entrainment is the primary one and lives in `measureEntrainment`, shared with
+ * the Independence Lab so there is exactly one definition of it. The version
+ * that used to live here compared each left-hand residual's sign against the
+ * nearest right-hand onset, and it was knife-edge unstable: measured on the
+ * same fixture, a 4 ms difference in jitter swung it from 0.97 to 0.16, because
+ * a sign test with a fixed threshold sits right on the tempo map's smoothing
+ * boundary. It also only ever looked at the *left* hand, which cannot see the
+ * case where the subdivided right hand is the one collapsing onto the beat.
  */
 function computeIndependence(
   residuals: ReadonlyArray<{
@@ -447,40 +558,8 @@ function computeIndependence(
     performedCluster: PerformedCluster;
   }>,
   take: PerformedTake,
-  mergedLeftHand: { merged: number; total: number },
+  entrainment: { value: number; considered: number } | null,
 ): IndependenceMetrics {
-  const rightOnsets: number[] = [];
-  for (const r of residuals) {
-    if (r.cluster.notes.some((n) => n.staff === 1)) {
-      rightOnsets.push(r.performedCluster.onsetMs);
-    }
-  }
-
-  let pulled = 0;
-  let considered = 0;
-  for (const r of residuals) {
-    const isLeftOnly =
-      r.cluster.notes.some((n) => n.staff === 2) &&
-      !r.cluster.notes.some((n) => n.staff === 1);
-    if (!isLeftOnly) continue;
-
-    const onset = r.performedCluster.onsetMs;
-    let nearest: number | null = null;
-    let bestDistance = Infinity;
-    for (const rh of rightOnsets) {
-      const d = Math.abs(rh - onset);
-      if (d < bestDistance) { bestDistance = d; nearest = rh; }
-    }
-    if (nearest === null || bestDistance > 500) continue;
-
-    considered += 1;
-    // A residual pointing toward the nearest right-hand onset is the hand
-    // being pulled; one pointing away is not.
-    if (Math.sign(nearest - onset) === Math.sign(r.ms) && Math.abs(r.ms) > 8) {
-      pulled += 1;
-    }
-  }
-
   const rightVelocities: number[] = [];
   const leftVelocities: number[] = [];
   for (const r of residuals) {
@@ -494,19 +573,10 @@ function computeIndependence(
   const rightMean = mean(rightVelocities);
   const leftMean = mean(leftVelocities);
 
-  // Severe entrainment hides from the measurement above: once the hands land
-  // together the clusterer merges them, so the left-hand cluster is never
-  // matched and there is no residual to inspect. A notated left-hand onset
-  // whose pitch turns up inside a right-hand cluster *is* the collapse, and
-  // counting it is what keeps the metric monotone in the fault.
-  const collapsed = mergedLeftHand.merged;
-  const collapseTotal = mergedLeftHand.total;
-
-  const totalConsidered = considered + collapseTotal;
-  const totalPulled = pulled + collapsed;
-
   return {
-    entrainment: totalConsidered > 0 ? totalPulled / totalConsidered : 0,
+    // Zero when the hands never play apart: there is nothing to be pulled, and
+    // that is a property of the music rather than of the playing.
+    entrainment: entrainment?.value ?? 0,
     dynamicSeparationDb:
       take.hasVelocity && rightMean > 0 && leftMean > 0
         ? 20 * Math.log10(rightMean / leftMean)

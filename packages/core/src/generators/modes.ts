@@ -29,6 +29,11 @@ import {
 } from '../theory/harmony';
 import type { Ladder } from '../progression/ladder';
 import { generateSightReading } from '../score/generate/sightReading';
+import {
+  generateIndependence, type IndependenceRatio,
+} from '../score/generate/independence';
+import { judgeIndependence, type IndependenceAspect } from '../grading/independence';
+import type { Articulation } from '../score/model';
 import { serializeMusicXml } from '../score/musicxml/serialize';
 import { flattenScore, onsetClusters } from '../score/timeline';
 import { type Rng, makeRng } from './rng';
@@ -80,6 +85,12 @@ export const MODES: readonly ModeMeta[] = [
     tagline: 'A phrase you have never seen. One attempt.',
     why: 'Reading is a separate skill from playing, and it only improves on material you have not memorised. Every phrase is new and scored on the first attempt — repeating one turns reading into recall.',
     needsMidi: false, icon: 'staff',
+  },
+  {
+    id: 'independence', name: 'Independence Lab',
+    tagline: 'Two hands that refuse to agree.',
+    why: 'Hands-together is the wall, and playing pieces and hoping does not get you over it. It fails because one hand captures the other, so the fix is material where the rhythms genuinely disagree and a measure that can see the capture happening.',
+    needsMidi: false, icon: 'hands',
   },
   {
     id: 'rhythm-gauntlet', name: 'Rhythm Gauntlet',
@@ -155,6 +166,24 @@ export const LADDERS: Record<ModeId, Ladder> = {
       { id: 'ks2', name: 'All fifteen', params: { maxFifths: 7, asks: ['accidental-count', 'name-from-signature'] }, skillIds: ['theory.key-signatures.flats'] },
       { id: 'ks3', name: 'Relative minors', params: { maxFifths: 7, asks: ['relative'] }, skillIds: ['theory.scales.minor'] },
       { id: 'ks4', name: 'Scale spelling', params: { maxFifths: 7, asks: ['scale-spelling'] }, skillIds: ['theory.scales.major'] },
+    ],
+  },
+  'independence': {
+    modeId: 'independence',
+    // The ladder the taxonomy already describes: get each hand automatic, put
+    // them in parallel, then in conflict, and only then ask for different
+    // articulation and dynamics on top. Dynamics comes last because it is the
+    // one rung that needs a keyboard which measures how hard you struck.
+    rungs: [
+      { id: 'ind0', name: 'Hands together', params: { ratio: '1:1', bars: 4, leftMotion: 0, aspect: 'together', tempo: 66 }, skillIds: ['independence.hands-separate'] },
+      { id: 'ind1', name: 'Parallel motion', params: { ratio: '1:1', bars: 4, leftMotion: 2, aspect: 'together', tempo: 72 }, skillIds: ['independence.parallel'] },
+      { id: 'ind2', name: 'Contrary motion', params: { ratio: '1:1', bars: 4, leftMotion: 4, aspect: 'together', tempo: 76 }, skillIds: ['independence.contrary'] },
+      { id: 'ind3', name: 'Two against one', params: { ratio: '2:1', bars: 4, leftMotion: 2, aspect: 'rhythm', tempo: 72 }, skillIds: ['independence.rhythm.2-1'] },
+      { id: 'ind4', name: 'Three against one', params: { ratio: '3:1', bars: 4, leftMotion: 2, aspect: 'rhythm', tempo: 66 }, skillIds: ['independence.rhythm.3-1'] },
+      { id: 'ind5', name: 'Different articulation', params: { ratio: '2:1', bars: 4, leftMotion: 2, aspect: 'articulation', articulation: ['legato', 'staccato'], tempo: 72 }, skillIds: ['independence.articulation'] },
+      { id: 'ind6', name: 'Three against two', params: { ratio: '3:2', bars: 4, leftMotion: 2, aspect: 'rhythm', tempo: 63 }, skillIds: ['independence.rhythm.3-2'] },
+      { id: 'ind7', name: 'Different dynamics', params: { ratio: '2:1', bars: 4, leftMotion: 2, aspect: 'dynamics', dynamics: ['f', 'p'], tempo: 72 }, skillIds: ['independence.dynamics'] },
+      { id: 'ind8', name: 'Ostinato under a melody', params: { ratio: '3:2', bars: 8, leftMotion: 0, aspect: 'rhythm', improvise: true, tempo: 69 }, skillIds: ['independence.ostinato'] },
     ],
   },
   'sight-read': {
@@ -425,6 +454,56 @@ export function generateDrill(opts: GenerateOptions): Drill {
       break;
     }
 
+    case 'independence': {
+      const ratio = str(p, 'ratio', '1:1') as IndependenceRatio;
+      const tempo = num(p, 'tempo', 72);
+      const pair = list<string>(p, 'articulation', []);
+      const dyn = list<string>(p, 'dynamics', []);
+
+      const articulation = pair.length === 2
+        ? { right: pair[0] as Articulation, left: pair[1] as Articulation }
+        : null;
+      const dynamics = dyn.length === 2
+        ? { right: dyn[0]!, left: dyn[1]! }
+        : null;
+
+      // Middle C as the boundary is a *construction* here, not an assumption:
+      // the generator keeps the left hand strictly below it and the right at
+      // or above, and `assertHandsSeparated` checks that it did. That is what
+      // makes attributing a live note to a hand a lookup rather than a guess.
+      const splitPoint = 60;
+      const score = generateIndependence(
+        {
+          key: keyById('C-major'),
+          bars: num(p, 'bars', 4),
+          timeSignature: { beats: 4, beatType: 4 },
+          ratio,
+          splitPoint,
+          rightCeiling: 79,
+          leftMotion: num(p, 'leftMotion', 2),
+          articulation,
+          dynamics,
+          rightImprovises: bool(p, 'improvise'),
+          tempo,
+        },
+        opts.seed,
+      );
+
+      question = {
+        kind: 'play-independence',
+        score,
+        musicXml: serializeMusicXml(score),
+        splitPoint,
+        ratio,
+        aspect: str(p, 'aspect', 'rhythm') as IndependenceAspect,
+        articulation,
+        dynamics,
+        tempo,
+      };
+      baseXp = 80 + idx * 12;
+      break;
+    }
+
     case 'sight-read': {
       const keyIds = list<string>(p, 'keys', ['C-major']);
       const key = keyById(rng.pick(keyIds));
@@ -596,6 +675,31 @@ export function gradeDrill(drill: Drill, response: Response): Grade {
     case 'tap-rhythm': {
       if (response.kind !== 'taps') return wrongShape();
       return gradeRhythm(q.pattern, response.offsetsMs);
+    }
+
+    case 'play-independence': {
+      if (response.kind !== 'take') return wrongShape();
+      const report = judgeIndependence(q.score, response.take, {
+        aspect: q.aspect,
+        splitPoint: q.splitPoint,
+        articulation: q.articulation,
+        dynamics: q.dynamics,
+      });
+
+      const primary = report.verdicts.find((v) => v.aspect === q.aspect)
+        ?? report.verdicts[0];
+
+      return {
+        correctness: report.correctness,
+        correct: report.correctness >= 0.9 && (primary?.held ?? false),
+        detail: report.findings[0] ?? 'Nothing to report.',
+        diagnostics: {
+          noteAccuracy: report.performance.metrics.noteAccuracy,
+          entrainment:
+            1 - (report.verdicts.find((v) => v.aspect === 'rhythm')?.score ?? 1),
+          tempoBpm: report.performance.metrics.tempo.medianBpm,
+        },
+      };
     }
 
     case 'read-notation': {

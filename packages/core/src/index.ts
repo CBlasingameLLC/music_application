@@ -12,6 +12,7 @@ export * from './score/timeline';
 export * from './score/musicxml/parse';
 export * from './score/musicxml/serialize';
 export * from './score/generate/sightReading';
+export * from './score/generate/independence';
 
 export * from './grading/take';
 export * from './grading/align';
@@ -19,6 +20,7 @@ export * from './grading/tempoMap';
 export * from './grading/metrics';
 export * from './grading/grade';
 export * from './grading/synthesize';
+export * from './grading/independence';
 
 export * from './input/types';
 

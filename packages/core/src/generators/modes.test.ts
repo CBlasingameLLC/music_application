@@ -7,6 +7,7 @@ import { makeRng } from './rng';
 import { chordVoicing } from '../theory/chord';
 import { intervalAbbrev } from '../theory/interval';
 import { SKILLS } from '../skills/taxonomy';
+import { synthesizeTake } from '../grading/synthesize';
 
 const MODE_IDS = MODES.map((m) => m.id);
 
@@ -35,6 +36,15 @@ function perfectResponse(drill: ReturnType<typeof generateDrill>): Response {
     }
     case 'read-notation':
       return { kind: 'notes', midi: [...q.expected] };
+    case 'play-independence':
+      // A mechanically exact rendering of the exercise. Unlike every other
+      // mode, this one is graded on a continuous measure rather than on
+      // whether the answer matched, so "perfect" here means a take with no
+      // injected fault, not a take that scores a literal 1.
+      return {
+        kind: 'take',
+        take: synthesizeTake(q.score, { tempo: q.tempo, seed: 1 }),
+      };
   }
 }
 
@@ -126,7 +136,16 @@ describe('drill generation', () => {
         for (let i = 0; i < 20; i++) {
           const drill = generateDrill({ modeId, rungIndex: rung, seed: rng.int(0, 1e9) });
           const grade = gradeDrill(drill, perfectResponse(drill));
-          expect(grade.correctness, `${modeId}/${rung} seed ${drill.seed}`).toBeCloseTo(1, 5);
+          const label = `${modeId}/${rung} seed ${drill.seed}`;
+          if (modeId === 'independence') {
+            // The only mode graded on a measurement rather than a match. Even
+            // a mechanically exact take reads a percent or two of entrainment,
+            // because the measure is continuous — demanding a literal 1 would
+            // be asserting a precision the number does not carry.
+            expect(grade.correctness, label).toBeGreaterThan(0.95);
+          } else {
+            expect(grade.correctness, label).toBeCloseTo(1, 5);
+          }
           expect(grade.correct, `${modeId}/${rung}`).toBe(true);
         }
       }

@@ -56,6 +56,20 @@ export interface SynthesisFaults {
   /** Constant lateness applied to every onset. */
   readonly latencyMs?: number;
   /**
+   * Play every note the same length, ignoring notated articulation.
+   *
+   * The signature of a hand that cannot hold two articulations at once: the
+   * staccato quietly becomes as long as the legato.
+   */
+  readonly articulationCollapse?: boolean;
+  /**
+   * Play both hands at the same loudness, ignoring notated dynamics.
+   *
+   * What the hands actually do when independence fails: the quiet one comes up
+   * to meet the loud one within a bar or two.
+   */
+  readonly dynamicCollapse?: boolean;
+  /**
    * Pull left-hand onsets toward the nearest right-hand onset, 0-1.
    * The signature of one hand capturing the other.
    */
@@ -72,6 +86,11 @@ export interface SynthesisOptions {
   readonly seed?: number;
   readonly faults?: SynthesisFaults;
 }
+
+/** Roughly what each dynamic marking sounds like as a MIDI velocity, 0-1. */
+const DYNAMIC_VELOCITY: Readonly<Record<string, number>> = {
+  ppp: 0.12, pp: 0.22, p: 0.34, mp: 0.48, mf: 0.62, f: 0.78, ff: 0.9, fff: 1,
+};
 
 /** Gaussian noise via Box-Muller, so jitter is realistic rather than uniform. */
 function gaussian(rng: { next(): number }, sigma: number): number {
@@ -109,12 +128,58 @@ export function synthesizeTake(score: Score, options: SynthesisOptions = {}): Pe
   );
   const hesitationIndices = pickIndices(rng, clusters.length, faults.hesitations ?? 0);
 
+  // Notated dynamics, carried forward per staff from the first marking. A take
+  // that ignores them cannot demonstrate holding two at once, so the dynamics
+  // metric would have no fixture to be checked against.
+  const dynamicByStaff = new Map<number, string>();
+  for (const note of timeline) {
+    if (note.dynamic && !dynamicByStaff.has(note.staff)) {
+      dynamicByStaff.set(note.staff, note.dynamic);
+    }
+  }
+
   const totalBeats = clusters[clusters.length - 1]?.absoluteBeats ?? 1;
   const notes: PerformedNote[] = [];
   let accumulatedHesitation = 0;
 
-  // Right-hand onsets, needed to model entrainment.
-  const rhOnsetsByBeat = new Map<number, number>();
+  // Which hands each notated onset carries, so entrainment can pull whichever
+  // hand is actually notated off the other.
+  //
+  // Pulling only the *left* hand — the obvious model, and the one this had —
+  // cannot represent the failure at 2:1 or 3:1, where the left hand coincides
+  // with a right-hand note on every one of its onsets and it is the right
+  // hand's offbeats that collapse onto the beat. A fault that no-ops on half
+  // the exercises is worse than no fault, because the metric reading zero
+  // looks identical to the metric working.
+  const handMap = clusters.map((c) => ({
+    beats: c.absoluteBeats,
+    hasLeft: c.notes.some((n) => n.staff === 2),
+    hasRight: c.notes.some((n) => n.staff === 1),
+  }));
+
+  // Which hand gets captured.
+  //
+  // Entrainment is one hand being pulled onto the other's beats, not both
+  // drifting together — and a fault that moves both destroys the reference the
+  // measure needs, so a fully entrained take comes back looking clean. The
+  // captured hand is whichever one has notes notated *away* from the other; at
+  // 2:1 and 3:1 only the right hand does, which is the case a left-hand-only
+  // model cannot express at all. When both hands have such notes the left is
+  // the classic one to give way.
+  const soloLeft = handMap.some((e) => e.hasLeft && !e.hasRight);
+  const capturedHandIsLeft = soloLeft;
+
+  /** Nearest notated onset belonging to the other hand, in beats. */
+  const nearestOtherHandBeats = (at: number, wantLeft: boolean): number | null => {
+    let best: number | null = null;
+    let bestDistance = Infinity;
+    for (const entry of handMap) {
+      if (wantLeft ? !entry.hasLeft : !entry.hasRight) continue;
+      const d = Math.abs(entry.beats - at);
+      if (d > 1e-9 && d < bestDistance) { bestDistance = d; best = entry.beats; }
+    }
+    return best;
+  };
 
   for (let index = 0; index < clusters.length; index++) {
     const cluster = clusters[index];
@@ -162,19 +227,43 @@ export function synthesizeTake(score: Score, options: SynthesisOptions = {}): Pe
 
       let onset = baseMs + rollOffset + lead + gaussian(rng, faults.jitterMs ?? 0);
 
-      if ((faults.entrainment ?? 0) > 0 && note.staff === 2) {
-        const nearest = nearestValue([...rhOnsetsByBeat.values()], onset);
-        if (nearest !== null) onset += (nearest - onset) * (faults.entrainment ?? 0);
+      // Entrainment: a note notated apart from the other hand gets dragged
+      // toward it. A note that already coincides has nowhere to be dragged,
+      // which is why the ratio decides whether this fault does anything.
+      const entrainment = faults.entrainment ?? 0;
+      const isLeft = note.staff === 2;
+      const solo =
+        entrainment > 0 &&
+        isLeft === capturedHandIsLeft &&
+        cluster.notes.every((n) => (n.staff === 2) === isLeft);
+      if (solo) {
+        const target = nearestOtherHandBeats(cluster.absoluteBeats, note.staff !== 2);
+        if (target !== null) {
+          onset += (target - cluster.absoluteBeats) * beatMs * entrainment;
+        }
       }
 
-      const durationMs = Math.max(60, note.soundingBeats * beatMs * 0.9);
-      const velocity = isTop
-        ? (faults.melodyVelocity ?? 0.75)
-        : (faults.accompanimentVelocity ?? 0.55);
+      // Honour notated articulation, because otherwise no take can ever
+      // demonstrate holding two of them at once and the articulation metric
+      // has no fixture to be checked against.
+      const marks = note.articulations;
+      const holdFraction = faults.articulationCollapse
+        ? 0.9
+        : marks.includes('staccato') ? 0.35
+        : marks.includes('tenuto') || marks.includes('legato') ? 1
+        : 0.9;
+      const durationMs = Math.max(40, note.soundingBeats * beatMs * holdFraction);
+      const notatedDynamic = dynamicByStaff.get(note.staff);
+      const velocity = faults.dynamicCollapse
+        ? 0.6
+        : notatedDynamic !== undefined
+          ? (DYNAMIC_VELOCITY[notatedDynamic] ?? 0.6)
+          : isTop
+            ? (faults.melodyVelocity ?? 0.75)
+            : (faults.accompanimentVelocity ?? 0.55);
 
       notes.push({ midi, onsetMs: onset, offsetMs: onset + durationMs, velocity });
 
-      if (note.staff === 1) rhOnsetsByBeat.set(cluster.absoluteBeats, onset);
     });
   }
 
@@ -220,15 +309,6 @@ function pickIndices(
   return chosen;
 }
 
-function nearestValue(values: readonly number[], target: number): number | null {
-  let best: number | null = null;
-  let bestDistance = Infinity;
-  for (const value of values) {
-    const d = Math.abs(value - target);
-    if (d < bestDistance) { bestDistance = d; best = value; }
-  }
-  return bestDistance < 400 ? best : null;
-}
 
 /** Named fault presets, shared by the tests and the inspector. */
 export const FAULT_PRESETS: ReadonlyArray<{
