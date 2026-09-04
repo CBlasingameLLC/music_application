@@ -1,0 +1,30 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
+Thumbs.db
+
+coverage/
+.vercel/
+.turbo/
+
+# Service worker build output
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
+
+# Private copyrighted content never belongs in git.
+# Runtime-imported scores live in OPFS/IndexedDB on the device only.
+# This rule is belt-and-braces; the architecture is the real guarantee.
+content/private/
+**/*.private.musicxml
+**/*.private.mxl
+**/*.private.mid

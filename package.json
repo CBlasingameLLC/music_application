@@ -1,0 +1,18 @@
+{
+  "name": "etude",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Étude — a music training PWA that teaches piano the way a teacher would.",
+  "scripts": {
+    "dev": "pnpm --filter @etude/web dev",
+    "build": "pnpm --filter @etude/core build && pnpm --filter @etude/web build",
+    "test": "pnpm -r test",
+    "test:watch": "pnpm --filter @etude/core test:watch",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm --filter @etude/web lint"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0"
+}
