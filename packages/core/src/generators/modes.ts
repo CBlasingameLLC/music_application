@@ -35,6 +35,11 @@ import {
 import { judgeIndependence, type IndependenceAspect } from '../grading/independence';
 import type { Articulation } from '../score/model';
 import { serializeMusicXml } from '../score/musicxml/serialize';
+import {
+  clampRange, extractSection, measureCount, type SectionRange,
+} from '../score/section';
+import { repertoireAt, repertoireEntry } from '../score/repertoire';
+import { gradePerformance } from '../grading/grade';
 import { flattenScore, onsetClusters } from '../score/timeline';
 import { type Rng, makeRng } from './rng';
 import type { Drill, Grade, ModeId, Question, Response, RhythmPattern } from './questions';
@@ -46,6 +51,17 @@ export interface ModeMeta {
   /** Shown on the mode card so the pedagogical point is never a mystery. */
   readonly why: string;
   readonly needsMidi: boolean;
+  /**
+   * Needs its own screen rather than the shared drill runner.
+   *
+   * A take is not an answer. These modes record a performance — every onset,
+   * every release, every velocity — which needs a metronome, a count-in, a
+   * record button and a report, none of which the runner has. The runner
+   * renders seven question kinds and silently renders nothing for the rest, so
+   * scheduling one of these into a session would produce a drill that cannot
+   * be answered. The session builder skips them; they are reached directly.
+   */
+  readonly standalone: boolean;
   readonly icon: string;
 }
 
@@ -54,49 +70,55 @@ export const MODES: readonly ModeMeta[] = [
     id: 'chord-sprint', name: 'Chord Sprint',
     tagline: 'See a symbol, play the chord, beat the clock.',
     why: 'Chord shapes have to become automatic before they are useful. Timed recall under pressure is what makes them so.',
-    needsMidi: false, icon: 'sprint',
+    needsMidi: false, standalone: false, icon: 'sprint',
   },
   {
     id: 'degrees', name: 'Degrees',
     tagline: 'Hear a note in a key. Name its scale degree.',
     why: 'Functional ear training, not interval trivia. Hearing "that is the flat seventh" is what lets you work out a song by ear.',
-    needsMidi: false, icon: 'ear',
+    needsMidi: false, standalone: false, icon: 'ear',
   },
   {
     id: 'interval-ladder', name: 'Interval Ladder',
     tagline: 'Identify the distance between two notes.',
     why: 'Reading fluently means reading distances, not letter names. This trains the same recognition your eyes will need.',
-    needsMidi: false, icon: 'ladder',
+    needsMidi: false, standalone: false, icon: 'ladder',
   },
   {
     id: 'progression-detective', name: 'Progression Detective',
     tagline: 'Hear four chords. Write the Roman numerals.',
     why: 'Most songs are four chords you already know. Recognising the pattern is the difference between copying and understanding.',
-    needsMidi: false, icon: 'search',
+    needsMidi: false, standalone: false, icon: 'search',
   },
   {
     id: 'key-signature-blitz', name: 'Key Signature Blitz',
     tagline: 'Signatures, relatives, and spellings. Fast.',
     why: 'Key signatures should be instant recall. Every second spent counting sharps is a second not spent reading.',
-    needsMidi: false, icon: 'bolt',
+    needsMidi: false, standalone: false, icon: 'bolt',
   },
   {
     id: 'sight-read', name: 'Sight-Read Sprint',
     tagline: 'A phrase you have never seen. One attempt.',
     why: 'Reading is a separate skill from playing, and it only improves on material you have not memorised. Every phrase is new and scored on the first attempt — repeating one turns reading into recall.',
-    needsMidi: false, icon: 'staff',
+    needsMidi: false, standalone: false, icon: 'staff',
   },
   {
     id: 'independence', name: 'Independence Lab',
     tagline: 'Two hands that refuse to agree.',
     why: 'Hands-together is the wall, and playing pieces and hoping does not get you over it. It fails because one hand captures the other, so the fix is material where the rhythms genuinely disagree and a measure that can see the capture happening.',
-    needsMidi: false, icon: 'hands',
+    needsMidi: false, standalone: true, icon: 'hands',
+  },
+  {
+    id: 'repertoire', name: 'Repertoire',
+    tagline: 'A real piece, played for real.',
+    why: 'Everything else is preparation. A piece is where reading, rhythm and both hands have to happen at once, and "clean at 96 BPM" is the only honest measure of whether they do — accuracy on its own is bought by slowing down.',
+    needsMidi: false, standalone: true, icon: 'piece',
   },
   {
     id: 'rhythm-gauntlet', name: 'Rhythm Gauntlet',
     tagline: 'Tap the rhythm against the click.',
     why: 'Rhythm is drilled without pitch so the measurement is clean. Hands-together fails more often from rhythm than from notes.',
-    needsMidi: false, icon: 'pulse',
+    needsMidi: false, standalone: false, icon: 'pulse',
   },
 ];
 
@@ -186,6 +208,22 @@ export const LADDERS: Record<ModeId, Ladder> = {
       { id: 'ind8', name: 'Ostinato under a melody', params: { ratio: '3:2', bars: 8, leftMotion: 0, aspect: 'rhythm', improvise: true, tempo: 69 }, skillIds: ['independence.ostinato'] },
     ],
   },
+  repertoire: {
+    modeId: 'repertoire',
+    // Rungs are difficulty *tiers of piece*, not tempos. Tempo is the other
+    // ladder: within whatever piece this offers, the motor scheduler works the
+    // target BPM up toward what the piece is written at, and a missed criterion
+    // drops it a step rather than resetting. Two ladders because they measure
+    // two different things — what you can read and what your hands can do at
+    // speed — and conflating them would hide whichever is actually the limit.
+    rungs: [
+      { id: 'rp0', name: 'Five-finger pieces', params: { level: 1 }, skillIds: ['repertoire.first-pieces'] },
+      { id: 'rp1', name: 'Both hands moving', params: { level: 2 }, skillIds: ['repertoire.first-pieces'] },
+      { id: 'rp2', name: 'Independent rhythms', params: { level: 3 }, skillIds: ['repertoire.two-voice'] },
+      { id: 'rp3', name: 'Position shifts', params: { level: 4 }, skillIds: ['repertoire.two-voice'] },
+      { id: 'rp4', name: 'Played whole', params: { level: 5 }, skillIds: ['repertoire.performance'] },
+    ],
+  },
   'sight-read': {
     modeId: 'sight-read',
     rungs: [
@@ -270,6 +308,19 @@ export interface GenerateOptions {
   readonly seed: number;
   /** Previous drill, so voice-leading rungs can constrain the next chord. */
   readonly previous?: Drill;
+  /**
+   * Repertoire only. A piece is a choice the player makes and a tempo the motor
+   * ladder decides, neither of which a seed can produce — so unlike every other
+   * mode this one accepts them. Omit any of them and the seed picks a piece
+   * from the rung's tier, plays it whole, and starts at a conservative tempo,
+   * which is what lets the session builder schedule repertoire without knowing
+   * anything about the library.
+   */
+  readonly repertoire?: {
+    readonly pieceId?: string;
+    readonly section?: SectionRange;
+    readonly tempoTarget?: number;
+  };
 }
 
 export function generateDrill(opts: GenerateOptions): Drill {
@@ -542,6 +593,52 @@ export function generateDrill(opts: GenerateOptions): Drill {
       baseXp = 70 + idx * 10;
       break;
     }
+
+    case 'repertoire': {
+      const level = num(p, 'level', 1);
+      const requested = opts.repertoire?.pieceId
+        ? repertoireEntry(opts.repertoire.pieceId)
+        : null;
+      const pool = repertoireAt(level);
+      const entry = requested ?? (pool.length > 0 ? rng.pick([...pool]) : null);
+      if (!entry) {
+        throw new Error(
+          'no repertoire registered — call registerRepertoire() before generating a piece',
+        );
+      }
+
+      const bars = measureCount(entry.score);
+      const range = clampRange(
+        entry.score,
+        opts.repertoire?.section ?? { fromMeasure: 1, toMeasure: bars },
+      );
+      const section = extractSection(entry.score, range);
+      const whole = range.fromMeasure === 1 && range.toMeasure === bars;
+
+      // Never above what the piece is written at. The ladder's job is to reach
+      // the marked tempo cleanly, not to turn a minuet into a race.
+      const target = Math.min(
+        entry.tempo,
+        Math.max(40, Math.round(opts.repertoire?.tempoTarget ?? Math.min(entry.tempo, 60))),
+      );
+
+      question = {
+        kind: 'play-piece',
+        score: section.score,
+        musicXml: serializeMusicXml(section.score),
+        pieceId: entry.id,
+        title: entry.title,
+        composer: entry.composer,
+        section: range,
+        whole,
+        tempoTarget: target,
+        tempoGoal: entry.tempo,
+      };
+      // The highest base in the app. A piece asks for reading, rhythm and both
+      // hands at once, and it is the only activity that is also the point.
+      baseXp = 120 + idx * 20;
+      break;
+    }
   }
 
   return {
@@ -718,6 +815,37 @@ export function gradeDrill(drill: Drill, response: Response): Grade {
     case 'read-notation': {
       if (response.kind !== 'notes') return wrongShape();
       return gradeReading(q.expected, response.midi);
+    }
+
+    case 'play-piece': {
+      if (response.kind !== 'take') return wrongShape();
+      const report = gradePerformance(q.score, response.take);
+      const worst = report.metrics.errorLocations[0];
+
+      return {
+        correctness: report.score,
+        correct: report.score >= 0.95,
+        detail: report.findings[0] ?? 'Nothing to report.',
+        diagnostics: {
+          noteAccuracy: report.metrics.noteAccuracy,
+          // The tempo actually held, which is what the motor ladder climbs.
+          // "Clean at 96 BPM" is the unit of progress here; an accuracy figure
+          // without the tempo it was earned at says almost nothing, because
+          // accuracy is trivially bought by slowing down.
+          tempoBpm: report.metrics.tempo.medianBpm,
+          tempoTarget: q.tempoTarget,
+          meanAbsDeviationMs: report.metrics.timing.meanAbsDeviationMs,
+          // Per-bar failure clustering, which is what turns a score into
+          // somewhere to go: the next take can loop these bars instead of
+          // playing the whole piece again to fix four of its bars.
+          worstBar: worst?.measureNumber ?? 0,
+          worstBarErrors: worst?.errors ?? 0,
+          hesitationCount: report.metrics.hesitations.length,
+          tempoDriftFraction: report.metrics.tempo.driftFraction,
+          fromMeasure: q.section.fromMeasure,
+          toMeasure: q.section.toMeasure,
+        },
+      };
     }
   }
 }

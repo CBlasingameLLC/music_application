@@ -23,7 +23,8 @@ export type ModeId =
   | 'key-signature-blitz'
   | 'rhythm-gauntlet'
   | 'sight-read'
-  | 'independence';
+  | 'independence'
+  | 'repertoire';
 
 export interface RhythmEvent {
   /** Onset in beats from the start of the pattern. */
@@ -116,6 +117,26 @@ export type Question =
       readonly articulation: { right: Articulation; left: Articulation } | null;
       readonly dynamics: { right: string; left: string } | null;
       readonly tempo: number;
+    }
+  | {
+      readonly kind: 'play-piece';
+      readonly score: Score;
+      readonly musicXml: string;
+      /** The catalogue entry this came from, so a report can name the piece. */
+      readonly pieceId: string;
+      readonly title: string;
+      readonly composer: string | null;
+      /**
+       * The bars being played. A whole piece is still a section — the range is
+       * simply the whole of it — so nothing downstream needs two code paths.
+       */
+      readonly section: { readonly fromMeasure: number; readonly toMeasure: number };
+      /** Whether that range is the entire piece, which changes what a take means. */
+      readonly whole: boolean;
+      /** The tempo this take is aimed at, from the motor ladder. */
+      readonly tempoTarget: number;
+      /** The tempo the piece is written at. The ladder climbs toward it. */
+      readonly tempoGoal: number;
     };
 
 export type Response =

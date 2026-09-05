@@ -63,7 +63,7 @@ describe('a stored take', () => {
     const take = synthesizeTake(score, {
       tempo: 80,
       seed: 5,
-      faults: { dropped: 1, rolledChords: 1, drift: 0.08, jitterMs: 15 },
+      faults: { dropped: 1, rolledChords: 1, tempoDrift: 0.08, jitterMs: 15 },
     });
 
     const live = gradePerformance(score, take);
