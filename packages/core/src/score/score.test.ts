@@ -5,7 +5,10 @@ import { generateSightReading, type SightReadingParams } from './generate/sightR
 import {
   flattenScore, onsetClusters, scoreDurationBeats, notesOnStaff,
 } from './timeline';
-import { makeMeasure, makeNote, pitchRange, type Score } from './model';
+import {
+  keyboardSpan, makeMeasure, makeNote, pitchRange, GENERATED_PROVENANCE,
+  type Score,
+} from './model';
 import { allKeys, keyId, keyScale, type Key } from '../theory/scale';
 import { parsePitch, toMidi } from '../theory/pitch';
 import { makeRng } from '../generators/rng';
@@ -253,6 +256,75 @@ describe('MusicXML round-trip', () => {
     expect(flattenScore(reparsed).map((n) => n.midi))
       .toEqual(flattenScore(generated).map((n) => n.midi));
   });
+
+  it('rewinds between staves by what was written, not by a nominal bar', () => {
+    // The bug this pins: `<backup>` read the measure's own `timeSignature`,
+    // which is written only on the bar that introduces it. Every later bar of a
+    // 3/4 piece therefore rewound a quarter-note too far and landed the lower
+    // staff at onset -1 — silently, because a 4/4 piece is unaffected and every
+    // fixture was in four.
+    // `spelled` is what the serialiser writes `<pitch>` from; a note without it
+    // is a rest, so the fixture has to be spelled to test anything.
+    const at = (name: string, onsetBeats: number, durationBeats: number, staff: number) => {
+      const spelled = parsePitch(name)!;
+      return makeNote({
+        midi: toMidi(spelled), spelled, onsetBeats, durationBeats,
+        staff, voice: staff === 2 ? 2 : 1,
+      });
+    };
+
+    const bar = (number: number) => makeMeasure({
+      number,
+      timeSignature: number === 1 ? { beats: 3, beatType: 4 } : null,
+      notes: [
+        at('C5', 0, 2, 1), at('D5', 2, 1, 1),
+        at('C3', 0, 1, 2), at('G3', 1, 1, 2), at('C4', 2, 1, 2),
+      ],
+    });
+
+    const waltz: Score = {
+      id: 'three-four', title: 'Three Four', composer: null,
+      provenance: GENERATED_PROVENANCE,
+      parts: [{ id: 'P1', name: 'Piano', staffCount: 2, measures: [bar(1), bar(2), bar(3)] }],
+    };
+
+    const reparsed = parseMusicXml(serializeMusicXml(waltz));
+    for (const measure of reparsed.parts[0]!.measures) {
+      for (const note of measure.notes) {
+        expect(note.onsetBeats, `bar ${measure.number}`).toBeGreaterThanOrEqual(0);
+        expect(note.onsetBeats, `bar ${measure.number}`).toBeLessThan(3);
+      }
+    }
+    expect(flattenScore(reparsed).map((n) => n.midi))
+      .toEqual(flattenScore(waltz).map((n) => n.midi));
+  });
+
+  it('rewinds correctly when a staff does not fill its bar', () => {
+    // A pickup bar, or a lower staff that rests through part of a measure.
+    // Rewinding by the bar length rather than by what was written would put the
+    // second staff before the barline.
+    const measure = makeMeasure({
+      number: 1,
+      timeSignature: { beats: 4, beatType: 4 },
+      notes: [
+        makeNote({
+          midi: 72, spelled: parsePitch('C5'), onsetBeats: 0, durationBeats: 1, staff: 1,
+        }),
+        makeNote({
+          midi: 48, spelled: parsePitch('C3'), onsetBeats: 0, durationBeats: 1,
+          staff: 2, voice: 2,
+        }),
+      ],
+    });
+    const pickup: Score = {
+      id: 'pickup', title: 'Pickup', composer: null,
+      provenance: GENERATED_PROVENANCE,
+      parts: [{ id: 'P1', name: 'Piano', staffCount: 2, measures: [measure] }],
+    };
+
+    const reparsed = parseMusicXml(serializeMusicXml(pickup));
+    expect(reparsed.parts[0]!.measures[0]!.notes.map((n) => n.onsetBeats)).toEqual([0, 0]);
+  });
 });
 
 function baseParams(key: Key, over: Partial<SightReadingParams> = {}): SightReadingParams {
@@ -369,3 +441,38 @@ describe('generated sight-reading', () => {
 function keyPitchClasses(key: Key): number[] {
   return keyScale(key).map((n) => toMidi(n) % 12);
 }
+
+describe('keyboard span', () => {
+  it('covers every note a piece asks for', () => {
+    // Found by playing a real piece: the default C3 keyboard missed Ode to
+    // Joy's left-hand G2, so the piece could not be played on screen at all.
+    const generated = generateSightReading(
+      baseParams(K('C-major'), { hands: 2, range: [43, 79] }),
+      31,
+    );
+    const [lowest, highest] = pitchRange(generated)!;
+    const { low, octaves } = keyboardSpan(generated);
+
+    expect(low).toBeLessThanOrEqual(lowest);
+    expect(low + octaves * 12 - 1).toBeGreaterThanOrEqual(highest);
+  });
+
+  it('starts on a C, so the keyboard is readable at a glance', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const score = generateSightReading(
+        baseParams(K('C-major'), { hands: 2, range: [45 + seed, 76 + seed] }),
+        seed,
+      );
+      expect(keyboardSpan(score).low % 12, `seed ${seed}`).toBe(0);
+    }
+  });
+
+  it('falls back rather than producing an empty keyboard for a silent score', () => {
+    const silent: Score = {
+      id: 'silent', title: 'Silent', composer: null,
+      provenance: GENERATED_PROVENANCE,
+      parts: [{ id: 'P1', name: 'Piano', staffCount: 1, measures: [] }],
+    };
+    expect(keyboardSpan(silent)).toEqual({ low: 48, octaves: 2 });
+  });
+});

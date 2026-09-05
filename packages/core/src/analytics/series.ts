@@ -313,3 +313,120 @@ export function attemptGap(events: readonly EtudeEvent[]): AttemptGap | null {
     sampleSize: first.length + later.length,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Repertoire
+// ---------------------------------------------------------------------------
+
+export interface PieceAttempt {
+  readonly day: string;
+  /** The passage played, so a loop is not averaged into a whole-piece score. */
+  readonly activityId: string;
+  readonly fromMeasure: number;
+  readonly toMeasure: number;
+  readonly correctness: number;
+  /** The tempo actually held. Zero when the take was too short to fit one. */
+  readonly tempoBpm: number;
+  readonly worstBar: number;
+  readonly worstBarErrors: number;
+}
+
+/** A bar that keeps going wrong, and how often it has. */
+export interface TroubleBar {
+  readonly measureNumber: number;
+  /** Takes in which this was the worst bar. */
+  readonly takes: number;
+  /** Of how many takes considered. */
+  readonly outOf: number;
+}
+
+/**
+ * Fewest takes before a recurring bar means anything.
+ *
+ * Two takes agreeing is a coincidence. This is the same rule the rest of the
+ * analytics follow: below the threshold there is nothing honest to report.
+ */
+export const MIN_TAKES_FOR_TROUBLE = 3;
+
+/**
+ * Every graded take of one piece, oldest first.
+ *
+ * `Activity.Attempted` carries the activity id, and a repertoire drill's id
+ * *is* the passage — piece and bar range — so a prefix match finds every take
+ * of a piece without needing the mode denormalised onto the grade.
+ */
+export function pieceAttempts(
+  events: readonly EtudeEvent[],
+  activityIdPrefix: string,
+): PieceAttempt[] {
+  const activityOfAttempt = new Map<string, string>();
+
+  for (const event of events) {
+    if (event.type !== 'Activity.Attempted') continue;
+    if (!event.payload.activityId.startsWith(activityIdPrefix)) continue;
+    activityOfAttempt.set(event.payload.attemptId, event.payload.activityId);
+  }
+
+  const attempts: PieceAttempt[] = [];
+  for (const event of events) {
+    if (event.type !== 'Activity.Graded') continue;
+    const activityId = activityOfAttempt.get(event.payload.attemptId);
+    if (!activityId) continue;
+
+    const d = event.payload.diagnostics;
+    attempts.push({
+      day: localDay(new Date(event.at)),
+      activityId,
+      fromMeasure: d.fromMeasure ?? 0,
+      toMeasure: d.toMeasure ?? 0,
+      correctness: event.payload.correctness,
+      tempoBpm: d.tempoBpm ?? 0,
+      worstBar: d.worstBar ?? 0,
+      worstBarErrors: d.worstBarErrors ?? 0,
+    });
+  }
+  return attempts;
+}
+
+/**
+ * The bar that keeps failing, across takes.
+ *
+ * The plan calls per-bar failure clustering the most actionable output the
+ * grader produces, and this is why: "you fail at bar 7 in six of eight takes"
+ * names something to go and practise, which no average does. It is also the
+ * input to a practice loop — the app can offer those bars instead of asking for
+ * the whole piece again to fix four of its bars.
+ *
+ * Only takes that actually recorded an error count toward the denominator. A
+ * clean take is not evidence *for* any bar being the problem, and counting it
+ * against every bar would bury a real pattern under successful practice.
+ */
+export function troubleBars(attempts: readonly PieceAttempt[]): TroubleBar[] {
+  const faulted = attempts.filter((a) => a.worstBar > 0 && a.worstBarErrors > 0);
+  if (faulted.length < MIN_TAKES_FOR_TROUBLE) return [];
+
+  const counts = new Map<number, number>();
+  for (const attempt of faulted) {
+    counts.set(attempt.worstBar, (counts.get(attempt.worstBar) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([measureNumber, takes]) => ({
+      measureNumber,
+      takes,
+      outOf: faulted.length,
+    }))
+    .sort((a, b) => b.takes - a.takes || a.measureNumber - b.measureNumber);
+}
+
+/** The best tempo held cleanly on a passage, and the take that did it. */
+export function bestCleanTempo(
+  attempts: readonly PieceAttempt[],
+  criterion = 0.95,
+): number {
+  let best = 0;
+  for (const attempt of attempts) {
+    if (attempt.correctness >= criterion) best = Math.max(best, attempt.tempoBpm);
+  }
+  return best;
+}

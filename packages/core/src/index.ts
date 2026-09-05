@@ -13,6 +13,8 @@ export * from './score/musicxml/parse';
 export * from './score/musicxml/serialize';
 export * from './score/generate/sightReading';
 export * from './score/generate/independence';
+export * from './score/section';
+export * from './score/repertoire';
 
 export * from './grading/take';
 export * from './grading/align';

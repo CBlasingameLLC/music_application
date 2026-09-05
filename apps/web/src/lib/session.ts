@@ -19,10 +19,20 @@ export const MIDI_ONLY_DOMAINS: readonly DomainId[] = [
   'technique', 'independence', 'repertoire',
 ];
 
+/**
+ * Modes the shared drill runner can actually present.
+ *
+ * The take-based modes have their own screens — a performance needs a
+ * metronome, a count-in and a report, none of which the runner has — so
+ * scheduling one into a session would put an unanswerable drill in front of the
+ * user. They are reached directly instead.
+ */
+const SCHEDULABLE = MODES.filter((m) => !m.standalone);
+
 /** Which modes can provide evidence for a given skill. */
 const MODES_BY_SKILL = (() => {
   const map = new Map<string, Set<ModeId>>();
-  for (const mode of MODES) {
+  for (const mode of SCHEDULABLE) {
     for (const rung of LADDERS[mode.id].rungs) {
       for (const skillId of rung.skillIds) {
         const set = map.get(skillId) ?? new Set<ModeId>();
@@ -104,7 +114,7 @@ export function stepsFromPlan(plan: SessionPlan): RunnerStep[] {
     // so an empty queue still produces a usable session rather than a blank one.
     const candidates = modes.length > 0
       ? modes
-      : MODES.filter((m) =>
+      : SCHEDULABLE.filter((m) =>
           LADDERS[m.id].rungs.some((r) =>
             r.skillIds.some((s) => {
               const d = domainOf(s);

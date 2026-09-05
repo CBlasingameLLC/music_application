@@ -132,16 +132,25 @@ export default function LibraryPage() {
                   {spec.provenance.license}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const score = bundledScore(spec.id);
-                  if (score) setPreview({ id: spec.id, xml: serializeMusicXml(score) });
-                }}
-                className="tap shrink-0 rounded-lg bg-raised px-4 text-sm text-ink-dim"
-              >
-                View
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const score = bundledScore(spec.id);
+                    if (score) setPreview({ id: spec.id, xml: serializeMusicXml(score) });
+                  }}
+                  className="tap rounded-lg bg-raised px-4 text-sm text-ink-dim"
+                >
+                  View
+                </button>
+                <Link
+                  href={`/play/repertoire?piece=${encodeURIComponent(spec.id)}`}
+                  className="tap flex items-center rounded-lg bg-accent px-4 text-sm font-semibold text-accent-ink"
+                  data-testid={`practise-${spec.id}`}
+                >
+                  Practise
+                </Link>
+              </div>
             </li>
           ))}
         </ul>
@@ -159,9 +168,14 @@ export default function LibraryPage() {
               Sight-reading material is generated, so you can practise reading
               without importing anything. This is for pieces you want to learn.
             </p>
-            <Link href="/play/sight-read" className="mt-4 inline-block text-sm text-accent underline">
-              Go to Sight-Read Sprint
-            </Link>
+            <div className="mt-4 flex justify-center gap-4">
+              <Link href="/play/sight-read" className="text-sm text-accent underline">
+                Sight-Read Sprint
+              </Link>
+              <Link href="/play/repertoire" className="text-sm text-accent underline">
+                Play something included
+              </Link>
+            </div>
           </div>
         ) : (
           <ul className="panel divide-y divide-hairline">
@@ -182,6 +196,13 @@ export default function LibraryPage() {
                 >
                   View
                 </button>
+                <Link
+                  href={`/play/repertoire?piece=${encodeURIComponent(s.id)}`}
+                  className="tap flex items-center rounded-lg bg-accent px-4 text-sm font-semibold text-accent-ink"
+                  data-testid={`practise-${s.id}`}
+                >
+                  Practise
+                </Link>
                 <button
                   type="button"
                   onClick={() => void deleteScore(s.id).then(refresh)}

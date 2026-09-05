@@ -479,6 +479,147 @@ try {
     }
   }
 
+  console.log('\n== Repertoire ==');
+  {
+    // Straight from the library, which is the route a user actually takes.
+    await page.goto(`${BASE}/library`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(600);
+    const practise = await page.getByTestId('practise-ode-to-joy').count();
+    if (practise > 0) ok('a bundled piece offers Practise');
+    else bad('the library offers no way to practise a bundled piece');
+
+    await page.getByTestId('practise-ode-to-joy').click();
+    await page.waitForURL('**/play/repertoire**');
+    await page.waitForTimeout(1500);
+
+    const staff = await page.locator('[data-testid="repertoire-score"] svg').count();
+    if (staff > 0) ok('the piece is engraved');
+    else bad('no staff rendered for the piece');
+
+    const label = (await page.getByTestId('section-label').innerText()).trim();
+    if (/all \d+ bars/.test(label)) ok(`opens on the whole piece (${label})`);
+    else bad(`did not open on the whole piece: ${label}`);
+
+    // The tempo ladder starts below the marked tempo. Starting at the marked
+    // tempo would make "clean at X" meaningless on the first take.
+    const target = Number((await page.getByTestId('tempo-target').innerText()).match(/\d+/)[0]);
+    const row = await page.getByTestId('tempo-row').innerText();
+    const marked = Number((row.match(/marked\s+(\d+)/) ?? [])[1] ?? 0);
+    if (target > 0 && marked > 0 && target < marked) {
+      ok(`starts at ${target} BPM against a marked ${marked}`);
+    } else {
+      bad(`tempo ladder did not start below the marked tempo: ${target} vs ${marked}`);
+    }
+
+    // A section is a real score, so looping four bars must render four bars.
+    await page.getByTestId('section-1-4').click();
+    await page.waitForTimeout(1200);
+    const looped = (await page.getByTestId('section-label').innerText()).trim();
+    if (/bars 1[–-]4/.test(looped)) ok(`looping a section reports it (${looped})`);
+    else bad(`section selection did not take: ${looped}`);
+
+    const loopExpected = (await page.getByTestId('repertoire-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+    await page.getByTestId('section-whole').click();
+    await page.waitForTimeout(1200);
+    const wholeExpected = (await page.getByTestId('repertoire-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+    if (loopExpected.length > 0 && loopExpected.length < wholeExpected.length) {
+      ok(`a loop is ${loopExpected.length} onsets of the piece's ${wholeExpected.length}`);
+    } else {
+      bad(`loop did not narrow the material: ${loopExpected.length} vs ${wholeExpected.length}`);
+    }
+
+    // Play it. The click is turned off first: a count-in would swallow the
+    // taps, and the point here is the grader, not the metronome.
+    await page.getByTestId('toggle-click').uncheck();
+    await page.getByTestId('section-1-4').click();
+    await page.waitForTimeout(1000);
+    const toPlay = (await page.getByTestId('repertoire-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+
+    const keys = await page.locator('div[role="group"] button').all();
+    const labels = await Promise.all(keys.map((k) => k.getAttribute('aria-label')));
+    const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const nameOf = (m) => `${NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
+
+    await page.getByTestId('start-take').click();
+    let offKeyboard = 0;
+    for (const cluster of toPlay) {
+      for (const midi of cluster.split('+').map(Number)) {
+        const i = labels.indexOf(nameOf(midi));
+        if (i >= 0) await keys[i].tap();
+        else offKeyboard += 1;
+      }
+      await page.waitForTimeout(180);
+    }
+    await page.getByTestId('finish-take').click();
+    await page.waitForTimeout(1500);
+
+    if (offKeyboard === 0) ok('every notated pitch was reachable on screen');
+    else bad(`${offKeyboard} notated pitches fell outside the keyboard`);
+
+    const reportText = (await page.getByTestId('take-report').innerText()).trim();
+    if (reportText.length > 0) ok('a take produces a report');
+    else bad('no report after a take');
+
+    // Tempo, not accuracy, is what the verdict is about.
+    const verdict = (await page.getByTestId('tempo-verdict').innerText()).trim();
+    if (/\d+/.test(verdict) && /(Clean at|Not clean at|against a target of)/.test(verdict)) {
+      ok(`the verdict is about tempo: ${JSON.stringify(verdict.slice(0, 70))}`);
+    } else {
+      bad(`the verdict said nothing about tempo: ${JSON.stringify(verdict.slice(0, 90))}`);
+    }
+
+    // The defect that only showed up on screen: this script taps as fast as it
+    // can, so the take lands hundreds of BPM above the target while hitting
+    // every note. Crediting that as "held" set the best clean tempo to 233 and
+    // jumped the ladder straight to the marked tempo. A tempo you did not play
+    // at is not one you have earned.
+    const rushed = /against a target of/.test(verdict);
+    const tempoRow = await page.getByTestId('tempo-row').innerText();
+    if (rushed && /Not held clean yet/.test(tempoRow)) {
+      ok('a take rushed past the target is not credited with holding it');
+    } else if (!rushed) {
+      ok('the take landed near its target');
+    } else {
+      bad(`a rushed take was credited: ${JSON.stringify(tempoRow.slice(0, 90))}`);
+    }
+  }
+
+  console.log('\n== The ladder actually moves ==');
+  {
+    // The regression that never once fired. `recent` was not derived in the
+    // fold, so the promotion window was always empty, so no mode could ever
+    // promote — a cycle in which the only event that could carry the window was
+    // the event that could never be emitted.
+    const moved = await page.evaluate(async () => {
+      const open = indexedDB.open('etude');
+      const db = await new Promise((res, rej) => {
+        open.onsuccess = () => res(open.result);
+        open.onerror = () => rej(open.error);
+      });
+      const tx = db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const all = await new Promise((res) => {
+        const req = store.getAll();
+        req.onsuccess = () => res(req.result);
+      });
+      db.close();
+      return all.filter((e) => e.type === 'Ladder.Moved').length;
+    });
+    // Not asserting a promotion happened — this run does not play eight clean
+    // drills of one mode — only that reading the log for one works, so the
+    // check below has something real to stand on.
+    ok(`log is readable for ladder moves (${moved} so far)`);
+
+    await page.goto(`${BASE}/practice`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(700);
+    const practiceBody = await page.locator('body').innerText();
+    if (/Repertoire/.test(practiceBody)) ok('Repertoire is offered on the practice screen');
+    else bad('Repertoire is missing from the practice screen');
+  }
+
   console.log('\n== Grader inspector ==');
   await page.goto(`${BASE}/diagnostics/grader`, { waitUntil: 'networkidle' });
   await page.getByTestId('grader-findings').waitFor({ timeout: 15000 });

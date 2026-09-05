@@ -73,6 +73,15 @@ export interface PieceSpec {
   readonly leftHand?: readonly NoteSpec[];
   /** What this piece is for, shown in the library. */
   readonly teaches: string;
+  /**
+   * Difficulty tier, 1 upward, which the Repertoire ladder climbs.
+   *
+   * Ordered by what the piece *demands of the hands*, not by how it sounds:
+   * 1 five-finger position with a static left hand; 2 both hands moving on the
+   * same rhythm; 3 independent rhythms or a key signature to hold; 4 position
+   * shifts and thumb crossings; 5 real repertoire, phrased.
+   */
+  readonly level: number;
 }
 
 export function buildPiece(spec: PieceSpec): Score {
