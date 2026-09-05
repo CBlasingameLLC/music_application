@@ -15,8 +15,8 @@
 import Link from 'next/link';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  LADDERS, flattenScore, generateDrill, gradeDrill, judgeIndependence, modeMeta,
-  onsetClusters,
+  LADDERS, flattenScore, generateDrill, gradeDrill, judgeIndependence, keyboardSpan,
+  modeMeta, onsetClusters,
   type AspectVerdict, type Drill, type IndependenceReport,
 } from '@etude/core';
 import { ScoreView } from '@/components/ScoreView';
@@ -279,7 +279,8 @@ export default function IndependenceLabPage() {
           {report && <Verdicts report={report} />}
 
           <section className="mt-6">
-            <Keyboard low={48} octaves={3} />
+            {/* Sized to the exercise, so no notated pitch is off screen. */}
+            <Keyboard {...keyboardSpan(question.score, { low: 48, octaves: 3 })} />
           </section>
         </>
       )}

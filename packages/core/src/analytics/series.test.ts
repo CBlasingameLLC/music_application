@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  attemptGap, diagnosticDistribution, domainTrends, dayRange, practiceByDay,
-  tempoProgress, MIN_TREND_DAYS,
+  attemptGap, bestCleanTempo, diagnosticDistribution, domainTrends, dayRange,
+  pieceAttempts, practiceByDay, tempoProgress, troubleBars, MIN_TREND_DAYS,
 } from './series';
 import { emptyAppState, foldEvents, type SkillAccumulator } from './fold';
 import { currentMastery } from '../progression/mastery';
@@ -244,5 +244,113 @@ describe('first attempt against later ones', () => {
     expect(gap.firstAttempt).toBeCloseTo(0.5, 6);
     expect(gap.laterAttempts).toBeCloseTo(1, 6);
     expect(gap.sampleSize).toBe(28);
+  });
+});
+
+describe('repertoire history', () => {
+  const PREFIX = 'repertoire-minuet-in-g-';
+
+  /** A graded take of a passage, with the diagnostics the mode persists. */
+  function take(opts: {
+    day?: string;
+    from?: number;
+    to?: number;
+    correctness?: number;
+    tempoBpm?: number;
+    worstBar?: number;
+    worstBarErrors?: number;
+  }): EtudeEvent[] {
+    const from = opts.from ?? 1;
+    const to = opts.to ?? 8;
+    return attempt(
+      opts.day ?? '2026-03-01',
+      MOTOR.id,
+      opts.correctness ?? 1,
+      `${PREFIX}${from}-${to}`,
+      {
+        fromMeasure: from,
+        toMeasure: to,
+        tempoBpm: opts.tempoBpm ?? 72,
+        worstBar: opts.worstBar ?? 0,
+        worstBarErrors: opts.worstBarErrors ?? 0,
+      },
+    );
+  }
+
+  it('collects every take of one piece and nothing else', () => {
+    const events = [
+      ...take({ tempoBpm: 60 }),
+      ...attempt('2026-03-01', MOTOR.id, 1, 'repertoire-ode-to-joy-1-8', { tempoBpm: 84 }),
+      ...take({ tempoBpm: 68 }),
+    ];
+    const mine = pieceAttempts(events, PREFIX);
+    expect(mine).toHaveLength(2);
+    expect(mine.map((a) => a.tempoBpm)).toEqual([60, 68]);
+  });
+
+  it('keeps a loop apart from the whole piece', () => {
+    // Averaging a four-bar loop into a whole-piece score would flatter both.
+    const events = [...take({ from: 1, to: 8 }), ...take({ from: 5, to: 8 })];
+    const all = pieceAttempts(events, PREFIX);
+    expect(new Set(all.map((a) => a.activityId)).size).toBe(2);
+    expect(all.map((a) => [a.fromMeasure, a.toMeasure])).toEqual([[1, 8], [5, 8]]);
+  });
+
+  it('is empty for a piece that has never been played', () => {
+    expect(pieceAttempts(take({}), 'repertoire-something-else-')).toEqual([]);
+  });
+
+  describe('the bar that keeps failing', () => {
+    it('says nothing until enough takes agree', () => {
+      // Two takes agreeing is a coincidence.
+      const events = [
+        ...take({ worstBar: 7, worstBarErrors: 3 }),
+        ...take({ worstBar: 7, worstBarErrors: 2 }),
+      ];
+      expect(troubleBars(pieceAttempts(events, PREFIX))).toEqual([]);
+    });
+
+    it('names the recurring bar, and how often', () => {
+      const events = [
+        ...take({ worstBar: 7, worstBarErrors: 3 }),
+        ...take({ worstBar: 7, worstBarErrors: 2 }),
+        ...take({ worstBar: 3, worstBarErrors: 1 }),
+        ...take({ worstBar: 7, worstBarErrors: 4 }),
+      ];
+      const bars = troubleBars(pieceAttempts(events, PREFIX));
+      expect(bars[0]).toEqual({ measureNumber: 7, takes: 3, outOf: 4 });
+      expect(bars[1]).toEqual({ measureNumber: 3, takes: 1, outOf: 4 });
+    });
+
+    it('does not count clean takes against any bar', () => {
+      // A take with nothing wrong is not evidence *for* a bar being the
+      // problem, and counting it would bury a real pattern under good practice.
+      const events = [
+        ...take({ worstBar: 7, worstBarErrors: 3 }),
+        ...take({ worstBar: 7, worstBarErrors: 2 }),
+        ...take({ worstBar: 7, worstBarErrors: 1 }),
+        ...take({}),
+        ...take({}),
+      ];
+      const bars = troubleBars(pieceAttempts(events, PREFIX));
+      expect(bars[0]).toEqual({ measureNumber: 7, takes: 3, outOf: 3 });
+    });
+  });
+
+  describe('the best tempo held', () => {
+    it('ignores tempos reached without holding the criterion', () => {
+      // Accuracy is trivially bought by slowing down, and speed is trivially
+      // bought by giving up accuracy. Only a take that did both counts.
+      const events = [
+        ...take({ correctness: 1, tempoBpm: 72 }),
+        ...take({ correctness: 0.6, tempoBpm: 108 }),
+        ...take({ correctness: 0.98, tempoBpm: 84 }),
+      ];
+      expect(bestCleanTempo(pieceAttempts(events, PREFIX))).toBe(84);
+    });
+
+    it('is zero when nothing has been held cleanly yet', () => {
+      expect(bestCleanTempo(pieceAttempts(take({ correctness: 0.4 }), PREFIX))).toBe(0);
+    });
   });
 });

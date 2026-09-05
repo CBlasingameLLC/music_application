@@ -6,7 +6,8 @@ import {
   flattenScore, onsetClusters, scoreDurationBeats, notesOnStaff,
 } from './timeline';
 import {
-  makeMeasure, makeNote, pitchRange, GENERATED_PROVENANCE, type Score,
+  keyboardSpan, makeMeasure, makeNote, pitchRange, GENERATED_PROVENANCE,
+  type Score,
 } from './model';
 import { allKeys, keyId, keyScale, type Key } from '../theory/scale';
 import { parsePitch, toMidi } from '../theory/pitch';
@@ -440,3 +441,38 @@ describe('generated sight-reading', () => {
 function keyPitchClasses(key: Key): number[] {
   return keyScale(key).map((n) => toMidi(n) % 12);
 }
+
+describe('keyboard span', () => {
+  it('covers every note a piece asks for', () => {
+    // Found by playing a real piece: the default C3 keyboard missed Ode to
+    // Joy's left-hand G2, so the piece could not be played on screen at all.
+    const generated = generateSightReading(
+      baseParams(K('C-major'), { hands: 2, range: [43, 79] }),
+      31,
+    );
+    const [lowest, highest] = pitchRange(generated)!;
+    const { low, octaves } = keyboardSpan(generated);
+
+    expect(low).toBeLessThanOrEqual(lowest);
+    expect(low + octaves * 12 - 1).toBeGreaterThanOrEqual(highest);
+  });
+
+  it('starts on a C, so the keyboard is readable at a glance', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const score = generateSightReading(
+        baseParams(K('C-major'), { hands: 2, range: [45 + seed, 76 + seed] }),
+        seed,
+      );
+      expect(keyboardSpan(score).low % 12, `seed ${seed}`).toBe(0);
+    }
+  });
+
+  it('falls back rather than producing an empty keyboard for a silent score', () => {
+    const silent: Score = {
+      id: 'silent', title: 'Silent', composer: null,
+      provenance: GENERATED_PROVENANCE,
+      parts: [{ id: 'P1', name: 'Piano', staffCount: 1, measures: [] }],
+    };
+    expect(keyboardSpan(silent)).toEqual({ low: 48, octaves: 2 });
+  });
+});

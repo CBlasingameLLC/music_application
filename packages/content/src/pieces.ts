@@ -88,10 +88,16 @@ const odeToJoy: PieceSpec = {
 /**
  * Contrary motion, written for this app.
  *
- * Hands move in mirror image from a shared middle C. This is the gentlest real
- * entry into hand independence: both hands play the same rhythm and the same
- * finger numbers at the same time, so the only new demand is that they move in
- * opposite directions. It is the step most method books skip.
+ * Hands move in mirror image, each thumb on a C an octave apart. This is the
+ * gentlest real entry into hand independence: both hands play the same rhythm
+ * and the same finger numbers at the same time, so the only new demand is that
+ * they move in opposite directions. It is the step most method books skip.
+ *
+ * The octave gap is not decoration. This originally mirrored from a *shared*
+ * middle C, which reads well on paper and cannot be played: two hands cannot
+ * strike one key. A keyboard would send a single note-on where the score
+ * expects two, so a perfect performance would have been marked down for a
+ * missing note on the first beat, every take, forever.
  */
 const contraryMotion: PieceSpec = {
   id: 'contrary-motion-study',
@@ -102,7 +108,7 @@ const contraryMotion: PieceSpec = {
   timeSignature: { beats: 4, beatType: 4 },
   tempo: 72,
   provenance: ORIGINAL,
-  teaches: 'Mirror-image movement from a shared middle C. Same rhythm, same fingers, opposite directions.',
+  teaches: 'Mirror-image movement, each thumb on a C an octave apart. Same rhythm, same fingers, opposite directions.',
   rightHand: [
     { pitch: 'C4', beats: 1, fingering: 1 }, { pitch: 'D4', beats: 1, fingering: 2 },
     { pitch: 'E4', beats: 1, fingering: 3 }, { pitch: 'F4', beats: 1, fingering: 4 },
@@ -113,13 +119,13 @@ const contraryMotion: PieceSpec = {
     { pitch: 'C4', beats: 4, fingering: 1 },
   ],
   leftHand: [
-    { pitch: 'C4', beats: 1, staff: 2, fingering: 1 }, { pitch: 'B3', beats: 1, staff: 2, fingering: 2 },
-    { pitch: 'A3', beats: 1, staff: 2, fingering: 3 }, { pitch: 'G3', beats: 1, staff: 2, fingering: 4 },
-    { pitch: 'F3', beats: 2, staff: 2, fingering: 5 }, { pitch: 'G3', beats: 1, staff: 2, fingering: 4 },
-    { pitch: 'A3', beats: 1, staff: 2, fingering: 3 },
-    { pitch: 'B3', beats: 1, staff: 2, fingering: 2 }, { pitch: 'A3', beats: 1, staff: 2, fingering: 3 },
-    { pitch: 'G3', beats: 1, staff: 2, fingering: 4 }, { pitch: 'B3', beats: 1, staff: 2, fingering: 2 },
-    { pitch: 'C4', beats: 4, staff: 2, fingering: 1 },
+    { pitch: 'C3', beats: 1, staff: 2, fingering: 1 }, { pitch: 'B2', beats: 1, staff: 2, fingering: 2 },
+    { pitch: 'A2', beats: 1, staff: 2, fingering: 3 }, { pitch: 'G2', beats: 1, staff: 2, fingering: 4 },
+    { pitch: 'F2', beats: 2, staff: 2, fingering: 5 }, { pitch: 'G2', beats: 1, staff: 2, fingering: 4 },
+    { pitch: 'A2', beats: 1, staff: 2, fingering: 3 },
+    { pitch: 'B2', beats: 1, staff: 2, fingering: 2 }, { pitch: 'A2', beats: 1, staff: 2, fingering: 3 },
+    { pitch: 'G2', beats: 1, staff: 2, fingering: 4 }, { pitch: 'B2', beats: 1, staff: 2, fingering: 2 },
+    { pitch: 'C3', beats: 4, staff: 2, fingering: 1 },
   ],
 };
 

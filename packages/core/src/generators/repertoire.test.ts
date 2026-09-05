@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { LADDERS, generateDrill, gradeDrill, type GenerateOptions } from './modes';
+import {
+  LADDERS, TEMPO_TOLERANCE, generateDrill, gradeDrill, type GenerateOptions,
+} from './modes';
 import {
   registerRepertoire, repertoire, repertoireAt, repertoireEntry,
-  type RepertoireEntry,
+  ungradedRepertoire, type RepertoireEntry,
 } from '../score/repertoire';
 import { generateSightReading } from '../score/generate/sightReading';
 import { synthesizeTake, type SynthesisFaults } from '../grading/synthesize';
@@ -66,6 +68,23 @@ describe('the catalogue', () => {
     // piece stays played.
     expect(repertoireAt(3).map((e) => e.level)).toEqual([1, 2, 3]);
     expect(repertoireAt(1).map((e) => e.level)).toEqual([1]);
+  });
+
+  it('never suggests a piece nothing has graded, but keeps it choosable', () => {
+    // An imported file's difficulty is unknowable — nothing can read a MusicXML
+    // document and say how hard it is to play. A guessed tier would be the
+    // ladder claiming to know something it does not.
+    const imported = { ...fixture(1), id: 'imported', level: 0 };
+    registerRepertoire([...CATALOGUE, imported]);
+
+    expect(repertoireAt(5).map((e) => e.id)).not.toContain('imported');
+    expect(repertoire().map((e) => e.id)).toContain('imported');
+    expect(ungradedRepertoire().map((e) => e.id)).toEqual(['imported']);
+    // And it is still playable when asked for by name.
+    const drill = generateDrill({
+      modeId: 'repertoire', rungIndex: 0, seed: 1, repertoire: { pieceId: 'imported' },
+    });
+    expect(drill.question.kind).toBe('play-piece');
   });
 
   it('says so plainly when a drill is asked for with nothing registered', () => {
@@ -135,6 +154,21 @@ describe('generating a repertoire drill', () => {
     expect(q.tempoTarget).toBeLessThan(q.tempoGoal);
   });
 
+  it('identifies a drill by the passage, not by the seed', () => {
+    // Playing the same passage again is the point of the mode. A seed-based id
+    // would make every take a different activity, and the per-bar clustering
+    // and first-versus-later comparison would have nothing to group.
+    const a = question({ pieceId: 'fixture-2' }, 4, 1);
+    const b = question({ pieceId: 'fixture-2' }, 4, 999);
+    expect(a.drill.id).toBe(b.drill.id);
+
+    // A loop is a different thing to practise than the whole piece.
+    const loop = question({
+      pieceId: 'fixture-2', section: { fromMeasure: 5, toMeasure: 8 },
+    });
+    expect(loop.drill.id).not.toBe(a.drill.id);
+  });
+
   it('renders to MusicXML that carries the section', () => {
     const { q } = question({
       pieceId: 'fixture-2',
@@ -199,6 +233,62 @@ describe('grading a repertoire take', () => {
     const missed = play({ dropped: 3 });
     expect(missed.correctness).toBeLessThan(clean.correctness);
     expect(missed.correctness).toBeGreaterThan(0.6);
+  });
+
+  it('does not credit a take played at the wrong tempo', () => {
+    // The defect this exists to catch, found by looking at the screen rather
+    // than at a test: a take hammered out at twice the target hit every note,
+    // scored 100%, and was recorded as "best held clean: 233" — which then set
+    // the next target to the marked tempo. The tempo map absorbs a uniform
+    // tempo change by design, so the performance score alone cannot see this.
+    const drill = generateDrill({
+      modeId: 'repertoire', rungIndex: 4, seed: 1,
+      repertoire: { pieceId: 'fixture-3', tempoTarget: 60 },
+    });
+    if (drill.question.kind !== 'play-piece') throw new Error('wrong kind');
+
+    // Note-perfect, but played at twice the tempo it was asked for.
+    const rushed = synthesizeTake(drill.question.score, { tempo: 120, seed: 7 });
+    const grade = gradeDrill(drill, { kind: 'take', take: rushed });
+
+    expect(grade.correct).toBe(false);
+    // Zero means "no tempo demonstrated", which the fold reads as a reason to
+    // hold `achievedTempo` rather than to move it.
+    expect(grade.diagnostics.tempoBpm).toBe(0);
+    expect(grade.diagnostics.tempoPlayedBpm).toBeGreaterThan(100);
+    expect(grade.detail).toMatch(/target of 60/);
+  });
+
+  it('credits the target when the take was actually played at it', () => {
+    const drill = generateDrill({
+      modeId: 'repertoire', rungIndex: 4, seed: 1,
+      repertoire: { pieceId: 'fixture-3', tempoTarget: 60 },
+    });
+    if (drill.question.kind !== 'play-piece') throw new Error('wrong kind');
+
+    const take = synthesizeTake(drill.question.score, { tempo: 60, seed: 7 });
+    const grade = gradeDrill(drill, { kind: 'take', take });
+
+    expect(grade.correct).toBe(true);
+    // The target, not the measured median: what the take demonstrates you can
+    // hold is the tempo you were asked for and met.
+    expect(grade.diagnostics.tempoBpm).toBe(60);
+  });
+
+  it('tolerates the drift of an unaccompanied take', () => {
+    // Narrow enough that holding one rung cannot be satisfied by playing the
+    // one below it, wide enough that a take without a click still counts.
+    const drill = generateDrill({
+      modeId: 'repertoire', rungIndex: 4, seed: 1,
+      repertoire: { pieceId: 'fixture-3', tempoTarget: 60 },
+    });
+    if (drill.question.kind !== 'play-piece') throw new Error('wrong kind');
+
+    const slightly = synthesizeTake(drill.question.score, {
+      tempo: 60 * (1 + TEMPO_TOLERANCE * 0.6), seed: 7,
+    });
+    expect(gradeDrill(drill, { kind: 'take', take: slightly }).diagnostics.tempoBpm)
+      .toBe(60);
   });
 
   it('rejects a response that is not a take', () => {

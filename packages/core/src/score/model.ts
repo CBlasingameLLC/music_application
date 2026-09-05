@@ -142,6 +142,32 @@ export function pitchRange(score: Score): [MidiNote, MidiNote] | null {
   return [Math.min(...pitches), Math.max(...pitches)];
 }
 
+/**
+ * A keyboard wide enough to play a score on.
+ *
+ * Starts on a C at or below the lowest note — a keyboard beginning mid-octave
+ * is hard to read at a glance — and runs far enough to reach the highest. A
+ * note the score asks for that is not on screen cannot be played at all, which
+ * is a worse problem than keys being narrower.
+ *
+ * Found by playing a real piece: the bundled default of C3 upward missed the
+ * left hand's G2 in Ode to Joy, so the piece was literally unplayable on the
+ * touch keyboard. Generated four-bar drills were written inside the default
+ * range and never showed it.
+ */
+export function keyboardSpan(
+  score: Score,
+  fallback: { low: MidiNote; octaves: number } = { low: 48, octaves: 2 },
+): { low: MidiNote; octaves: number } {
+  const range = pitchRange(score);
+  if (!range) return fallback;
+
+  const [lowest, highest] = range;
+  const low = Math.max(0, Math.floor(lowest / 12) * 12);
+  const octaves = Math.max(1, Math.ceil((highest - low + 1) / 12));
+  return { low, octaves };
+}
+
 /** A blank note, so constructing one does not mean listing every optional field. */
 export function makeNote(partial: Partial<ScoreNote> & Pick<ScoreNote, 'onsetBeats' | 'durationBeats'>): ScoreNote {
   return {

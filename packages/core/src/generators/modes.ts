@@ -323,6 +323,29 @@ export interface GenerateOptions {
   };
 }
 
+/**
+ * The activity id for a passage of a piece.
+ *
+ * Stable across takes, and distinct per section: a loop of bars 5-8 is a
+ * different thing to practise than the whole piece, and conflating them would
+ * average a four-bar loop into a whole-piece score.
+ */
+/**
+ * How far a take may sit from its target tempo and still count as at it.
+ *
+ * Twelve percent: wider than the drift of an unaccompanied take, narrower than
+ * the gap between one rung of the tempo ladder and the next, so holding a rung
+ * cannot be satisfied by playing the one above or below it.
+ */
+export const TEMPO_TOLERANCE = 0.12;
+
+export function repertoireActivityId(
+  pieceId: string,
+  section: { fromMeasure: number; toMeasure: number },
+): string {
+  return `repertoire-${pieceId}-${section.fromMeasure}-${section.toMeasure}`;
+}
+
 export function generateDrill(opts: GenerateOptions): Drill {
   const ladder = LADDERS[opts.modeId];
   const idx = Math.max(0, Math.min(ladder.rungs.length - 1, opts.rungIndex));
@@ -642,7 +665,15 @@ export function generateDrill(opts: GenerateOptions): Drill {
   }
 
   return {
-    id: `${opts.modeId}-${opts.seed}`,
+    // Repertoire is identified by *what is being played*, not by the seed.
+    // Playing the same passage again is the entire point of the mode, and the
+    // analytics that compare a first attempt with later ones — and the per-bar
+    // clustering that says "you fail at bar 7 in six of eight takes" — key on
+    // this id. A seed-based id would make every take of the same piece a
+    // different activity and there would be nothing to cluster.
+    id: question.kind === 'play-piece'
+      ? repertoireActivityId(question.pieceId, question.section)
+      : `${opts.modeId}-${opts.seed}`,
     modeId: opts.modeId,
     rungId: rung.id,
     rungIndex: idx,
@@ -822,17 +853,41 @@ export function gradeDrill(drill: Drill, response: Response): Grade {
       const report = gradePerformance(q.score, response.take);
       const worst = report.metrics.errorLocations[0];
 
+      // "Clean at 96" means *asked for 96 and played at 96*. A take rushed at
+      // twice the target that happens to hit the right notes is not evidence of
+      // holding the target — it is evidence of ignoring it, and crediting it
+      // would make the one honest measure of motor progress meaningless. The
+      // tempo map absorbs a uniform tempo change by design, so the performance
+      // score alone cannot see this: it has to be checked against what was
+      // asked for.
+      const played = report.metrics.tempo.medianBpm;
+      const off = played > 0 ? Math.abs(played - q.tempoTarget) / q.tempoTarget : 1;
+      const atTempo = off <= TEMPO_TOLERANCE;
+      // Outside the tolerance the score falls off with how far off it was, and
+      // is floored: a take is never worth nothing for a tempo the player can
+      // fix by choosing a lower target and playing it again.
+      const tempoFactor = atTempo ? 1 : Math.max(0.5, 1 - (off - TEMPO_TOLERANCE));
+      const correctness = report.score * tempoFactor;
+
+      const findings = atTempo ? report.findings : [
+        `Played at about ${Math.round(played)} against a target of `
+        + `${q.tempoTarget}. The notes are one thing; at this tempo is another.`,
+        ...report.findings,
+      ];
+
       return {
-        correctness: report.score,
-        correct: report.score >= 0.95,
-        detail: report.findings[0] ?? 'Nothing to report.',
+        correctness,
+        correct: correctness >= 0.95 && atTempo,
+        detail: findings[0] ?? 'Nothing to report.',
         diagnostics: {
           noteAccuracy: report.metrics.noteAccuracy,
-          // The tempo actually held, which is what the motor ladder climbs.
-          // "Clean at 96 BPM" is the unit of progress here; an accuracy figure
-          // without the tempo it was earned at says almost nothing, because
-          // accuracy is trivially bought by slowing down.
-          tempoBpm: report.metrics.tempo.medianBpm,
+          // The tempo the take *demonstrates you can hold*, which is what the
+          // motor ladder climbs — the target, when it was actually held, and
+          // zero when nothing was demonstrated. Zero is read as "no tempo
+          // measured" downstream, so `achievedTempo` holds rather than moving
+          // on a number the player did not earn.
+          tempoBpm: atTempo ? q.tempoTarget : 0,
+          tempoPlayedBpm: played,
           tempoTarget: q.tempoTarget,
           meanAbsDeviationMs: report.metrics.timing.meanAbsDeviationMs,
           // Per-bar failure clustering, which is what turns a score into

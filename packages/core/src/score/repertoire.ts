@@ -23,6 +23,12 @@ export interface RepertoireEntry {
   /**
    * Difficulty tier, 1 upward. Ordered by what the piece demands of the hands,
    * which is the thing the ladder is climbing — not by how it sounds.
+   *
+   * **0 means ungraded**, which is what an imported file is: nothing can read a
+   * MusicXML document and say how hard it is to play. An ungraded piece is
+   * never *suggested* by the ladder, and is always available to choose. Putting
+   * a guess here instead would be the ladder pretending to know something it
+   * cannot.
    */
   readonly level: number;
   /** One line on what this piece is for, shown when choosing. */
@@ -47,15 +53,24 @@ export function repertoire(): readonly RepertoireEntry[] {
 }
 
 /**
- * Pieces at or below a difficulty tier.
+ * Graded pieces at or below a difficulty tier — what the ladder suggests.
  *
  * At or *below*, deliberately. A ladder that offered only the current tier
  * would retire a piece the moment it was learned, and playing something you
  * already have is how a piece stays played — the motor scheduler's flat decay
  * timer exists for exactly that.
+ *
+ * Ungraded pieces are excluded, not sorted to the front or the back. They can
+ * still be chosen from the full catalogue; they simply cannot be *recommended*,
+ * because their difficulty is unknown.
  */
 export function repertoireAt(maxLevel: number): readonly RepertoireEntry[] {
-  return catalogue.filter((entry) => entry.level <= maxLevel);
+  return catalogue.filter((entry) => entry.level >= 1 && entry.level <= maxLevel);
+}
+
+/** Pieces nothing has graded — imported files. Choosable, never suggested. */
+export function ungradedRepertoire(): readonly RepertoireEntry[] {
+  return catalogue.filter((entry) => entry.level < 1);
 }
 
 export function repertoireEntry(id: string): RepertoireEntry | null {
