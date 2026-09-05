@@ -693,11 +693,24 @@ export function gradeDrill(drill: Drill, response: Response): Grade {
         correctness: report.correctness,
         correct: report.correctness >= 0.9 && (primary?.held ?? false),
         detail: report.findings[0] ?? 'Nothing to report.',
+        // What gets written here is the *only* thing analytics can ever show,
+        // and it cannot be recovered later — every attempt made before a field
+        // is added is unrecoverable for it. So the grader's diagnostics are
+        // persisted rather than discarded when the report leaves the screen.
         diagnostics: {
           noteAccuracy: report.performance.metrics.noteAccuracy,
           entrainment:
             1 - (report.verdicts.find((v) => v.aspect === 'rhythm')?.score ?? 1),
           tempoBpm: report.performance.metrics.tempo.medianBpm,
+          meanAbsDeviationMs: report.performance.metrics.timing.meanAbsDeviationMs,
+          // The bar that went worst, and how badly. Per-bar failure clustering
+          // across takes is the most actionable output the grader produces —
+          // "you fail at bar 7 in six of eight takes" names something you can
+          // go and practise, which no average does.
+          worstBar: report.performance.metrics.errorLocations[0]?.measureNumber ?? 0,
+          worstBarErrors: report.performance.metrics.errorLocations[0]?.errors ?? 0,
+          hesitationCount: report.performance.metrics.hesitations.length,
+          tempoDriftFraction: report.performance.metrics.tempo.driftFraction,
         },
       };
     }

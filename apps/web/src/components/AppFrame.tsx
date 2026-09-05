@@ -8,7 +8,8 @@ import { requestPersistence } from '@/db/schema';
 const NAV = [
   { href: '/', label: 'Today' },
   { href: '/practice', label: 'Practice' },
-  { href: '/map', label: 'Progress' },
+  { href: '/map', label: 'Skills' },
+  { href: '/progress', label: 'Trends' },
 ] as const;
 
 /**

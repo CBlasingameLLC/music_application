@@ -24,6 +24,8 @@ export * from './grading/independence';
 
 export * from './input/types';
 export * from './input/onsetPicker';
+export * from './analytics/fold';
+export * from './analytics/series';
 
 export * from './events/types';
 
