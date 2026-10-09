@@ -80,3 +80,57 @@ jobs:
         env:
           BASE_URL: http://localhost:3311
           CHROME_PATH: ''
+
+  # The app against Android-sized screens, headless. This is *emulation*: the
+  # real engine at a device's size, touch and pixel ratio — not a device's own
+  # browser. It catches layout that does not fit; it cannot catch an old engine,
+  # Android's fonts, or how Silk launches an installed app. The on-device probes
+  # on /diagnostics cover that gap. See apps/web/e2e/README.md.
+  android:
+    name: Android layout (emulated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @etude/web exec playwright install --with-deps chromium
+
+      - name: Build
+        run: pnpm --filter @etude/web build
+
+      - name: Start server
+        run: |
+          pnpm --filter @etude/web start -p 3311 &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:3311/ && exit 0
+            sleep 1
+          done
+          echo "server did not come up within 30s"
+          exit 1
+
+      # Every route at six device sizes. Tablet profiles fail the job; phone
+      # profiles are reported without failing it, because the app is built for a
+      # landscape tablet and a phone is information about how it degrades.
+      - name: Layout across emulated devices
+        run: pnpm --filter @etude/web test:layout
+        env:
+          BASE_URL: http://localhost:3311
+          CHROME_PATH: ''
+
+      # A number saying "overflows by 40px" is a clue; the picture is the answer.
+      # Kept even when the job fails, which is when it is wanted.
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-layout-screenshots
+          path: apps/web/e2e-artifacts
+          retention-days: 14

@@ -15,6 +15,7 @@
  */
 
 import { chromium } from 'playwright';
+import { DEFAULT_PROFILE, contextOptions } from './devices.mjs';
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3311';
 const CHROME =
@@ -30,12 +31,12 @@ const bad = (m) => {
 const browser = await chromium.launch(
   process.env.CHROME_PATH === '' ? {} : { executablePath: CHROME },
 );
-const ctx = await browser.newContext({
-  viewport: { width: 1280, height: 800 },
-  deviceScaleFactor: 2,
-  hasTouch: true,
-  isMobile: true,
-});
+// The device the app is built for unless told otherwise. `DEVICE=pixel-7` runs
+// the same flows as another emulated Android profile — see devices.mjs for what
+// that can and cannot tell you.
+const PROFILE = process.env.DEVICE ?? DEFAULT_PROFILE;
+const ctx = await browser.newContext(contextOptions(PROFILE, browser.version()));
+console.log(`\n(emulating ${PROFILE}, engine ${browser.version()})`);
 const page = await ctx.newPage();
 
 const consoleErrors = [];
@@ -318,6 +319,109 @@ try {
     else bad(`probe missing: ${key}`);
   }
 
+  console.log('\n== Is it the browser, or is it the app ==');
+  {
+    // The rows that answer "why does this look wrong on that device". Under an
+    // emulated profile they must all be healthy: a regression in any of them
+    // would otherwise only show up as an unexplained blank report on the tablet.
+    // Matched on the label exactly. A substring match is a trap here: the
+    // "Display mode" row's explanation mentions the manifest, so looking up
+    // "Manifest" by substring read the wrong row — and the lookups that happened
+    // to work did so only because of the order the rows are in.
+    const rowText = async (label) => {
+      const row = page
+        .locator('[data-testid="device-probes"] > div')
+        .filter({ has: page.getByText(label, { exact: true }) })
+        .first();
+      return (await row.innerText()).replace(/\s+/g, ' ');
+    };
+
+    const browserRow = await rowText('Browser');
+    if (PROFILE.startsWith('fire')) {
+      // The emulated Fire profile sends a Silk-shaped user agent, so the engine
+      // parser has to recognise Silk and read the Chromium version through it.
+      if (/Silk .*Chromium \d+ .*Android 11/.test(browserRow)) ok(`browser identified: ${browserRow.slice(8, 70)}`);
+      else bad(`Silk not recognised: ${browserRow.slice(0, 100)}`);
+    } else if (/Chrome/.test(browserRow)) {
+      ok(`browser identified: ${browserRow.slice(8, 70)}`);
+    } else {
+      bad(`browser not identified: ${browserRow.slice(0, 100)}`);
+    }
+
+    const engineRow = await rowText('Engine');
+    if (/new enough/.test(engineRow)) ok('engine is new enough for the theme');
+    else bad(`engine verdict: ${engineRow.slice(0, 100)}`);
+
+    const themeRow = await rowText('Theme');
+    if (/resolved/.test(themeRow) && !/NOT/.test(themeRow)) ok('the dark theme resolved');
+    else bad(`theme verdict: ${themeRow.slice(0, 120)}`);
+
+    const cssRow = await rowText('CSS features');
+    if (!/✗/.test(cssRow) && /oklch\(\) ✓/.test(cssRow)) ok('every CSS feature the app uses is supported');
+    else bad(`CSS support: ${cssRow.slice(0, 140)}`);
+
+    const manifestRow = await rowText('Manifest');
+    if (/display standalone/.test(manifestRow)) ok('the manifest is read back as standalone');
+    else bad(`manifest row: ${manifestRow.slice(0, 120)}`);
+
+    if ((await rowText('Display mode')).length > 0) ok('display mode is reported');
+    else bad('no display mode row');
+
+    // A touch profile must be judged as one. This once silently was not.
+    const inputRow = await rowText('Input');
+    if (/coarse pointer · no hover/.test(inputRow)) ok('the page is judged as a touch device');
+    else bad(`input row: ${inputRow.slice(0, 100)}`);
+
+    // The report is what someone pastes from the tablet. It has to carry the
+    // headline and put problems first.
+    await page.getByTestId('copy-report').click();
+    await page.waitForSelector('[data-testid="report-text"]', { timeout: 5000 });
+    const report = await page.getByTestId('report-text').inputValue();
+    if (report.startsWith('Étude device report') && /\[ ok \] Theme: resolved/.test(report)) {
+      ok('the copy-report block is readable and carries the verdicts');
+    } else {
+      bad(`report malformed: ${JSON.stringify(report.slice(0, 120))}`);
+    }
+    const firstMark = (report.match(/^\[(FAIL|warn| ok |info)\]/m) ?? [])[1];
+    const lastFail = report.lastIndexOf('[FAIL]');
+    const firstGood = report.indexOf('[ ok ]');
+    if (lastFail === -1 || lastFail < firstGood) ok('problems are listed before things that are fine');
+    else bad(`a failure is listed after a passing row (first mark ${firstMark})`);
+  }
+
+  console.log('\n== Full screen ==');
+  {
+    // Where the Fullscreen API exists, the app offers it: it is the one thing a
+    // page can do about a browser toolbar that an installed icon failed to hide.
+    await page.getByTestId('test-fullscreen').click();
+    await page.waitForSelector('[data-testid="fullscreen-result"]', { timeout: 5000 });
+    const result = (await page.getByTestId('fullscreen-result').innerText()).trim();
+    if (/Entered|Rejected|not fullscreen|not available/.test(result)) {
+      ok(`the full-screen test reports what happened: ${result.slice(0, 80)}`);
+    } else {
+      bad(`full-screen test said nothing useful: ${JSON.stringify(result)}`);
+    }
+    await page.evaluate(() => document.exitFullscreen?.().catch(() => undefined));
+
+    await page.goto(BASE, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(500);
+    const offered = await page.getByTestId('enter-fullscreen').count();
+    if (offered === 1) {
+      ok('the Today screen offers full screen when the browser allows it');
+      await page.getByTestId('enter-fullscreen').click();
+      await page.waitForTimeout(600);
+      const stillOffered = await page.getByTestId('enter-fullscreen').count();
+      const inFullscreen = await page.evaluate(() => document.fullscreenElement !== null);
+      // Once it is on, the control has nothing left to offer.
+      if (inFullscreen && stillOffered === 0) ok('and hides itself once full screen is on');
+      else if (!inFullscreen) ok('the browser declined the request, and the button stayed available');
+      else bad('full screen is on but the button is still showing');
+      await page.evaluate(() => document.exitFullscreen?.().catch(() => undefined));
+    } else {
+      bad('the Today screen does not offer full screen though the API is available');
+    }
+  }
+
   console.log('\n== Trends ==');
   await page.goto(`${BASE}/progress`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
@@ -477,6 +581,147 @@ try {
     } else {
       bad('the dynamics rung did not disclose that velocity is unavailable');
     }
+  }
+
+  console.log('\n== Repertoire ==');
+  {
+    // Straight from the library, which is the route a user actually takes.
+    await page.goto(`${BASE}/library`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(600);
+    const practise = await page.getByTestId('practise-ode-to-joy').count();
+    if (practise > 0) ok('a bundled piece offers Practise');
+    else bad('the library offers no way to practise a bundled piece');
+
+    await page.getByTestId('practise-ode-to-joy').click();
+    await page.waitForURL('**/play/repertoire**');
+    await page.waitForTimeout(1500);
+
+    const staff = await page.locator('[data-testid="repertoire-score"] svg').count();
+    if (staff > 0) ok('the piece is engraved');
+    else bad('no staff rendered for the piece');
+
+    const label = (await page.getByTestId('section-label').innerText()).trim();
+    if (/all \d+ bars/.test(label)) ok(`opens on the whole piece (${label})`);
+    else bad(`did not open on the whole piece: ${label}`);
+
+    // The tempo ladder starts below the marked tempo. Starting at the marked
+    // tempo would make "clean at X" meaningless on the first take.
+    const target = Number((await page.getByTestId('tempo-target').innerText()).match(/\d+/)[0]);
+    const row = await page.getByTestId('tempo-row').innerText();
+    const marked = Number((row.match(/marked\s+(\d+)/) ?? [])[1] ?? 0);
+    if (target > 0 && marked > 0 && target < marked) {
+      ok(`starts at ${target} BPM against a marked ${marked}`);
+    } else {
+      bad(`tempo ladder did not start below the marked tempo: ${target} vs ${marked}`);
+    }
+
+    // A section is a real score, so looping four bars must render four bars.
+    await page.getByTestId('section-1-4').click();
+    await page.waitForTimeout(1200);
+    const looped = (await page.getByTestId('section-label').innerText()).trim();
+    if (/bars 1[–-]4/.test(looped)) ok(`looping a section reports it (${looped})`);
+    else bad(`section selection did not take: ${looped}`);
+
+    const loopExpected = (await page.getByTestId('repertoire-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+    await page.getByTestId('section-whole').click();
+    await page.waitForTimeout(1200);
+    const wholeExpected = (await page.getByTestId('repertoire-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+    if (loopExpected.length > 0 && loopExpected.length < wholeExpected.length) {
+      ok(`a loop is ${loopExpected.length} onsets of the piece's ${wholeExpected.length}`);
+    } else {
+      bad(`loop did not narrow the material: ${loopExpected.length} vs ${wholeExpected.length}`);
+    }
+
+    // Play it. The click is turned off first: a count-in would swallow the
+    // taps, and the point here is the grader, not the metronome.
+    await page.getByTestId('toggle-click').uncheck();
+    await page.getByTestId('section-1-4').click();
+    await page.waitForTimeout(1000);
+    const toPlay = (await page.getByTestId('repertoire-score')
+      .getAttribute('data-expected')).split(',').filter(Boolean);
+
+    const keys = await page.locator('div[role="group"] button').all();
+    const labels = await Promise.all(keys.map((k) => k.getAttribute('aria-label')));
+    const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const nameOf = (m) => `${NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
+
+    await page.getByTestId('start-take').click();
+    let offKeyboard = 0;
+    for (const cluster of toPlay) {
+      for (const midi of cluster.split('+').map(Number)) {
+        const i = labels.indexOf(nameOf(midi));
+        if (i >= 0) await keys[i].tap();
+        else offKeyboard += 1;
+      }
+      await page.waitForTimeout(180);
+    }
+    await page.getByTestId('finish-take').click();
+    await page.waitForTimeout(1500);
+
+    if (offKeyboard === 0) ok('every notated pitch was reachable on screen');
+    else bad(`${offKeyboard} notated pitches fell outside the keyboard`);
+
+    const reportText = (await page.getByTestId('take-report').innerText()).trim();
+    if (reportText.length > 0) ok('a take produces a report');
+    else bad('no report after a take');
+
+    // Tempo, not accuracy, is what the verdict is about.
+    const verdict = (await page.getByTestId('tempo-verdict').innerText()).trim();
+    if (/\d+/.test(verdict) && /(Clean at|Not clean at|against a target of)/.test(verdict)) {
+      ok(`the verdict is about tempo: ${JSON.stringify(verdict.slice(0, 70))}`);
+    } else {
+      bad(`the verdict said nothing about tempo: ${JSON.stringify(verdict.slice(0, 90))}`);
+    }
+
+    // The defect that only showed up on screen: this script taps as fast as it
+    // can, so the take lands hundreds of BPM above the target while hitting
+    // every note. Crediting that as "held" set the best clean tempo to 233 and
+    // jumped the ladder straight to the marked tempo. A tempo you did not play
+    // at is not one you have earned.
+    const rushed = /against a target of/.test(verdict);
+    const tempoRow = await page.getByTestId('tempo-row').innerText();
+    if (rushed && /Not held clean yet/.test(tempoRow)) {
+      ok('a take rushed past the target is not credited with holding it');
+    } else if (!rushed) {
+      ok('the take landed near its target');
+    } else {
+      bad(`a rushed take was credited: ${JSON.stringify(tempoRow.slice(0, 90))}`);
+    }
+  }
+
+  console.log('\n== The ladder actually moves ==');
+  {
+    // The regression that never once fired. `recent` was not derived in the
+    // fold, so the promotion window was always empty, so no mode could ever
+    // promote — a cycle in which the only event that could carry the window was
+    // the event that could never be emitted.
+    const moved = await page.evaluate(async () => {
+      const open = indexedDB.open('etude');
+      const db = await new Promise((res, rej) => {
+        open.onsuccess = () => res(open.result);
+        open.onerror = () => rej(open.error);
+      });
+      const tx = db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const all = await new Promise((res) => {
+        const req = store.getAll();
+        req.onsuccess = () => res(req.result);
+      });
+      db.close();
+      return all.filter((e) => e.type === 'Ladder.Moved').length;
+    });
+    // Not asserting a promotion happened — this run does not play eight clean
+    // drills of one mode — only that reading the log for one works, so the
+    // check below has something real to stand on.
+    ok(`log is readable for ladder moves (${moved} so far)`);
+
+    await page.goto(`${BASE}/practice`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(700);
+    const practiceBody = await page.locator('body').innerText();
+    if (/Repertoire/.test(practiceBody)) ok('Repertoire is offered on the practice screen');
+    else bad('Repertoire is missing from the practice screen');
   }
 
   console.log('\n== Grader inspector ==');

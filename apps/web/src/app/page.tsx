@@ -7,6 +7,7 @@ import {
 } from '@etude/core';
 import { useEtudeState, useMastery } from '@/db/store';
 import { DomainBar } from '@/components/DomainBar';
+import { FullscreenButton } from '@/components/FullscreenButton';
 
 export default function TodayPage() {
   const { app, streak, secondsToday, ready } = useEtudeState();
@@ -19,11 +20,14 @@ export default function TodayPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-5 pt-8">
-      <header className="mb-8">
-        <h1 className="text-[2.6rem] font-bold leading-none tracking-tight">Étude</h1>
-        <p className="mt-2 text-ink-faint">
-          {ready ? greeting(app.attemptsTotal) : 'Loading your history…'}
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-[2.6rem] font-bold leading-none tracking-tight">Étude</h1>
+          <p className="mt-2 text-ink-faint">
+            {ready ? greeting(app.attemptsTotal) : 'Loading your history…'}
+          </p>
+        </div>
+        <FullscreenButton />
       </header>
 
       <section className="grid grid-cols-3 gap-3" aria-label="Progress summary">
@@ -121,7 +125,7 @@ export default function TodayPage() {
       </section>
 
       <footer className="mt-12 pb-6 text-center">
-        <Link href="/diagnostics" className="text-sm text-ink-faint underline">
+        <Link href="/diagnostics" className="tap text-sm text-ink-faint underline">
           Device diagnostics
         </Link>
       </footer>

@@ -13,6 +13,8 @@ export * from './score/musicxml/parse';
 export * from './score/musicxml/serialize';
 export * from './score/generate/sightReading';
 export * from './score/generate/independence';
+export * from './score/section';
+export * from './score/repertoire';
 
 export * from './grading/take';
 export * from './grading/align';
@@ -26,6 +28,9 @@ export * from './input/types';
 export * from './input/onsetPicker';
 export * from './analytics/fold';
 export * from './analytics/series';
+export * from './device/engine';
+export * from './device/color';
+export * from './device/report';
 
 export * from './events/types';
 

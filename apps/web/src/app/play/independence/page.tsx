@@ -15,8 +15,8 @@
 import Link from 'next/link';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  LADDERS, flattenScore, generateDrill, gradeDrill, judgeIndependence, modeMeta,
-  onsetClusters,
+  LADDERS, flattenScore, generateDrill, gradeDrill, judgeIndependence, keyboardSpan,
+  modeMeta, onsetClusters,
   type AspectVerdict, type Drill, type IndependenceReport,
 } from '@etude/core';
 import { ScoreView } from '@/components/ScoreView';
@@ -25,6 +25,7 @@ import { useTakeRecorder, type PitchResolver } from '@/lib/input/useTakeRecorder
 import { MicBandSource } from '@/lib/input/micBands';
 import { useRecordAttempt, useEtudeState, ladderStateFor } from '@/db/store';
 import { input } from '@/lib/input/manager';
+import { audio } from '@/lib/audio';
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 1e9);
@@ -142,6 +143,12 @@ export default function IndependenceLabPage() {
         sessionId: null,
         scaffolds: [],
         ladder: ladderState,
+        take,
+        tempoTarget: question.tempo,
+        // The user plays in time with the click they *hear*, which is already
+        // late by the output latency, so every onset lands late by exactly that
+        // much. Recording it is what lets a re-grade correct for it.
+        audioOffsetMs: audio.outputLatencyMs,
       });
     } finally {
       setSaving(false);
@@ -154,7 +161,7 @@ export default function IndependenceLabPage() {
     <div className="mx-auto max-w-5xl px-5 pt-8 pb-24">
       <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-3xl font-bold">Independence Lab</h1>
-        <Link href="/practice" className="text-sm text-ink-faint underline">
+        <Link href="/practice" className="tap text-sm text-ink-faint underline">
           Practice
         </Link>
       </div>
@@ -272,7 +279,8 @@ export default function IndependenceLabPage() {
           {report && <Verdicts report={report} />}
 
           <section className="mt-6">
-            <Keyboard low={48} octaves={3} />
+            {/* Sized to the exercise, so no notated pitch is off screen. */}
+            <Keyboard {...keyboardSpan(question.score, { low: 48, octaves: 3 })} />
           </section>
         </>
       )}

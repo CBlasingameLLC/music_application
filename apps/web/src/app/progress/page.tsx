@@ -55,7 +55,7 @@ export default function ProgressPage() {
     <div className="mx-auto max-w-5xl px-5 pt-8 pb-24">
       <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-3xl font-bold">Over time</h1>
-        <Link href="/map" className="text-sm text-ink-faint underline">Skill map</Link>
+        <Link href="/map" className="tap text-sm text-ink-faint underline">Skill map</Link>
       </div>
       <p className="mt-2 max-w-2xl text-sm text-ink-faint">
         Everything else in the app is a number for right now. Mastery decays, so

@@ -31,3 +31,6 @@ content/private/
 **/*.private.musicxml
 **/*.private.mxl
 **/*.private.mid
+
+# Screenshots and reports from the emulated-device layout run.
+e2e-artifacts/

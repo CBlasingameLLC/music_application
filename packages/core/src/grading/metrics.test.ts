@@ -140,7 +140,14 @@ describe('a pulse that wanders with nothing to point at', () => {
     // it by design, so it belongs in the timing residuals, not in the tempo.
     // A wobble is correlated across neighbouring onsets, so it survives the
     // filter and reads as the pulse itself moving.
-    const jittered = grade(phrase(12, 44), { jitterMs: 110 }, 9);
+    // 130 rather than 110: capping the clustering window stopped noisy onsets
+    // being absorbed into their neighbours, so the same noise now reads a few
+    // milliseconds lower. Chosen from a sweep to clear the 60 ms reporting
+    // threshold while staying well under the instability limit, so the test
+    // measures the distinction rather than a boundary — at 145 the noise does
+    // begin to leak into the pulse, which is real and is why this is not set
+    // arbitrarily high.
+    const jittered = grade(phrase(12, 44), { jitterMs: 130 }, 9);
     // Each fault has to land in its own metric: the noise in the residuals,
     // the wobble in the tempo. Their magnitudes are not comparable — they are
     // parameterised in different units — so what is asserted is where each one

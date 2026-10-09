@@ -12,13 +12,14 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  type Drill, type Grade, type LadderState, type ModeId, type Response,
-  type ScaffoldId, type StreakState, type MasteryState,
+  type Drill, type Grade, type LadderState, type ModeId, type PerformedTake,
+  type Response, type ScaffoldId, type StreakState, type MasteryState,
   GRADER_VERSION, LADDERS, computeXp, currentMastery, evidenceFor,
   initialLadderState, initialStreak, localDay, recordAttempt as ladderRecord, ulid,
 } from '@etude/core';
+import { saveTake } from '@/lib/takes/store';
 import { db, hasIndexedDb } from './schema';
-import { append, appendMany } from './log';
+import { append, appendMany, deviceId } from './log';
 import {
   type AppState, catchUp, emptyAppState, streakFrom,
 } from './projections';
@@ -112,6 +113,12 @@ export function useRecordAttempt(): (
     scaffolds: readonly ScaffoldId[];
     ladder: LadderState;
     firstTry?: boolean;
+    /** The raw performance, for modes that record one. Kept so it can be re-graded. */
+    take?: PerformedTake | null;
+    /** The tempo the take was aimed at, which the take itself does not carry. */
+    tempoTarget?: number | null;
+    /** Output latency at capture. Without it every timing metric is biased late. */
+    audioOffsetMs?: number;
   },
 ) => Promise<AttemptOutcome> {
   return useCallback(async (drill, response, grade, opts) => {
@@ -163,6 +170,24 @@ export function useRecordAttempt(): (
         },
       },
     ]);
+
+    // The raw take, stored so a better grader can re-analyse it later. Written
+    // after the attempt rather than before: a blob that will not save must not
+    // cost the user the practice that produced it.
+    if (opts.take) {
+      const takeId = ulid();
+      const ref = await saveTake(takeId, opts.take);
+      if (ref) {
+        await append('Take.Recorded', {
+          takeId,
+          activityId: drill.id,
+          midiBlobRef: ref,
+          tempoTarget: opts.tempoTarget ?? null,
+          deviceProfileId: deviceId(),
+          audioOffsetMs: opts.audioOffsetMs ?? 0,
+        });
+      }
+    }
 
     if (result.move !== 'hold') {
       const from = ladder.rungs[opts.ladder.rungIndex];

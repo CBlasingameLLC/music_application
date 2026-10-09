@@ -15,7 +15,7 @@
 import type { EtudeEvent } from '../events/types';
 import type { ModeId } from '../generators/questions';
 import { LADDERS } from '../generators/modes';
-import { initialLadderState, type LadderState } from '../progression/ladder';
+import { initialLadderState, WINDOW, type LadderState } from '../progression/ladder';
 import {
   applyEvidence, initialMastery, type MasteryState,
 } from '../progression/mastery';
@@ -97,6 +97,17 @@ export function foldEvents(
     secondsByDay: { ...state.secondsByDay },
   };
 
+  // Rebuilding the ladder's rolling window needs all three activity events:
+  // `Presented` carries the mode, `Attempted` carries the id the grade is keyed
+  // on, and `Graded` carries the correctness. They are written in one
+  // transaction and the projection cursor advances in that same transaction, so
+  // a batch never splits across two fold calls and these never need to outlive
+  // one. If that ever stops holding, an unattributable grade is dropped from
+  // the window — which delays a promotion, where guessing a mode would corrupt
+  // one.
+  const modeOfActivity = new Map<string, string>();
+  const activityOfAttempt = new Map<string, string>();
+
   for (const event of events) {
     const at = new Date(event.at);
     const day = localDay(at);
@@ -109,7 +120,13 @@ export function foldEvents(
         break;
       }
 
+      case 'Activity.Presented': {
+        modeOfActivity.set(event.payload.activityId, event.payload.modeId);
+        break;
+      }
+
       case 'Activity.Attempted': {
+        activityOfAttempt.set(event.payload.attemptId, event.payload.activityId);
         // Drills played outside a planned session still count toward the day.
         // The overhead approximates reading and thinking time, which response
         // latency alone would miss.
@@ -127,6 +144,22 @@ export function foldEvents(
         next.totalXp += p.xpAwarded;
         if (p.correctness >= 0.99) next.correctTotal += 1;
 
+        // The ladder's promotion window, derived rather than stored. Nothing
+        // writes `recent` to the log, because the evidence *is* the run of
+        // grades — and deriving it means an existing log rebuilds a correct
+        // window rather than starting empty.
+        const gradedMode = activityOfAttempt.has(p.attemptId)
+          ? modeOfActivity.get(activityOfAttempt.get(p.attemptId)!) as ModeId | undefined
+          : undefined;
+        if (gradedMode && LADDERS[gradedMode]) {
+          const ladderState = next.ladders[gradedMode] ?? initialLadderState(gradedMode);
+          next.ladders[gradedMode] = {
+            ...ladderState,
+            recent: [...ladderState.recent, Math.max(0, Math.min(1, p.correctness))]
+              .slice(-WINDOW),
+          };
+        }
+
         for (const evidence of p.skillEvidence) {
           const acc = skills.get(evidence.skillId)
             ?? { mastery: initialMastery(evidence.skillId, skillKind(evidence.skillId)) };
@@ -138,7 +171,28 @@ export function foldEvents(
             acc.declarative = reviewDeclarative(card, evidence.correctness, p.latencyMs, at);
           } else {
             const motor = acc.motor ?? newMotorState(evidence.skillId, 120);
-            acc.motor = reviewMotor(motor, evidence.correctness, motor.achievedTempo, at);
+            // The tempo actually played, which only a mode that measures one
+            // reports. Passing `motor.achievedTempo` here — as this did — makes
+            // `reviewMotor`'s success branch `Math.max(a, a)`, so the ladder
+            // could only ever fall and every motor skill sat at the 60 BPM
+            // default forever. "Clean at 96 BPM" is the unit of motor progress;
+            // it has to come from the take.
+            const measured = p.diagnostics.tempoBpm;
+            const tempoKnown = typeof measured === 'number'
+              && Number.isFinite(measured) && measured > 0;
+            const reviewed = reviewMotor(
+              motor,
+              evidence.correctness,
+              tempoKnown ? measured : motor.achievedTempo,
+              at,
+            );
+            // Without a measured tempo the attempt is no evidence about tempo
+            // at all, so the review still moves the interval and the practice
+            // date while `achievedTempo` stays exactly where it was. An honest
+            // gap beats climbing or dropping a number nobody measured.
+            acc.motor = tempoKnown
+              ? reviewed
+              : { ...reviewed, achievedTempo: motor.achievedTempo };
           }
           skills.set(evidence.skillId, acc);
         }

@@ -64,6 +64,24 @@ export const MIN_CLUSTER_MS = 60;
  * separate, which is the other end this has to satisfy.
  */
 export const CLUSTER_IOI_FRACTION = 0.35;
+/**
+ * Ceiling on the clustering window.
+ *
+ * The fraction alone is unbounded, and in a sparse texture that is wrong: with
+ * a median local gap of 1500 ms the window opens to 525 ms and swallows a
+ * genuine eighth note into the chord before it. Found by grading a real piece —
+ * one lone eighth followed by a rest, at 60 bpm, came back as a three-note
+ * chord that was never played, costing a note of accuracy and reporting a
+ * simultaneity that did not happen. Uniform four-bar drills never produced a
+ * texture sparse enough to reach it.
+ *
+ * A chord is a *gesture*, and gestures do not scale without limit: melody lead
+ * runs about 30 ms (Goebl 2001), a deliberate roll 30-100 ms, an extreme spread
+ * arpeggio perhaps 150. Past that, two notes are two notes however slow the
+ * music is. The ceiling sits above every roll worth holding together and above
+ * `CHORD_SPREAD_FAULT_MS`, so a spread that should be reported still can be.
+ */
+export const MAX_CLUSTER_MS = 150;
 
 /**
  * Group note-ons into chords, with an **adaptive** window.
@@ -74,14 +92,19 @@ export const CLUSTER_IOI_FRACTION = 0.35;
  * deliberately rolled chord, which it splits into separate events. Scaling the
  * window to the local inter-onset interval tracks whatever the player is
  * actually doing.
+ *
+ * Bounded at both ends. The floor keeps genuine sixteenths apart at speed; the
+ * ceiling stops a sparse passage from opening the window so wide that separate
+ * notes are read as one chord.
  */
 export function clusterPerformance(
   notes: readonly PerformedNote[],
-  options: { minMs?: number; ioiFraction?: number } = {},
+  options: { minMs?: number; maxMs?: number; ioiFraction?: number } = {},
 ): PerformedCluster[] {
   if (notes.length === 0) return [];
 
   const minMs = options.minMs ?? MIN_CLUSTER_MS;
+  const maxMs = Math.max(minMs, options.maxMs ?? MAX_CLUSTER_MS);
   const fraction = options.ioiFraction ?? CLUSTER_IOI_FRACTION;
 
   const sorted = [...notes].sort((a, b) => a.onsetMs - b.onsetMs || a.midi - b.midi);
@@ -108,7 +131,10 @@ export function clusterPerformance(
 
     if (current.length > 0) {
       const gap = gaps[i - 1] ?? 0;
-      const window = Math.max(minMs, fraction * localIoi(gaps, i - 1));
+      const window = Math.min(
+        maxMs,
+        Math.max(minMs, fraction * localIoi(gaps, i - 1)),
+      );
       if (gap > window) flush();
     }
     current.push(note);

@@ -14,7 +14,6 @@ import { accidentalAscii } from '../../theory/pitch';
 import { keyFifths } from '../../theory/scale';
 import {
   type Measure, type Part, type Score, type ScoreNote,
-  DEFAULT_TIME_SIGNATURE, beatsPerMeasure,
 } from '../model';
 
 /** Ticks per quarter note. 12 divides by 2, 3 and 4, so triplets stay exact. */
@@ -158,21 +157,34 @@ function serializeMeasure(measure: Measure, staffCount: number, isFirst: boolean
   // order across staves would need a backup before nearly every note and is far
   // harder to read — both for a human and for a renderer.
   const staves = [...new Set(measure.notes.map((n) => n.staff))].sort((a, b) => a - b);
-  const beats = beatsPerMeasure(measure.timeSignature ?? DEFAULT_TIME_SIGNATURE);
+
+  // How far the cursor advanced writing the staff just emitted. The backup has
+  // to rewind by exactly that, not by a nominal bar length: `timeSignature` is
+  // written only on the bar that introduces it, so reading it here made every
+  // later bar of a 3/4 piece rewind a beat too far and land the lower staff at
+  // onset -1. Measuring what was actually written is also right for a pickup
+  // bar and for a staff that does not fill its measure.
+  let cursorBeats = 0;
 
   staves.forEach((staff, index) => {
-    if (index > 0) {
-      lines.push(`      <backup><duration>${Math.round(beats * DIVISIONS)}</duration></backup>`);
+    if (index > 0 && cursorBeats > 0) {
+      lines.push(
+        `      <backup><duration>${Math.round(cursorBeats * DIVISIONS)}</duration></backup>`,
+      );
     }
     const staffNotes = measure.notes
       .filter((n) => n.staff === staff)
       .sort((a, b) => a.onsetBeats - b.onsetBeats || (a.midi ?? 0) - (b.midi ?? 0));
 
+    cursorBeats = 0;
     let previousOnset: number | null = null;
     for (const note of staffNotes) {
       const isChordTone =
         previousOnset !== null && Math.abs(note.onsetBeats - previousOnset) < 1e-6;
       lines.push(serializeNote(note, isChordTone));
+      // A chord tone shares its onset and does not move the cursor, which is
+      // exactly what `<chord/>` means to a reader.
+      if (!isChordTone) cursorBeats += note.durationBeats;
       previousOnset = note.onsetBeats;
     }
   });

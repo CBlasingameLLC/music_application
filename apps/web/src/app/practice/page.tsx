@@ -104,7 +104,7 @@ export default function PracticePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-faint">
             Or pick a drill
           </h2>
-          <Link href="/library" className="text-sm text-ink-faint underline">
+          <Link href="/library" className="tap text-sm text-ink-faint underline">
             Library
           </Link>
         </div>

@@ -8,6 +8,9 @@ import { chordVoicing } from '../theory/chord';
 import { intervalAbbrev } from '../theory/interval';
 import { SKILLS } from '../skills/taxonomy';
 import { synthesizeTake } from '../grading/synthesize';
+import { registerRepertoire } from '../score/repertoire';
+import { generateSightReading } from '../score/generate/sightReading';
+import { allKeys, keyId } from '../theory/scale';
 
 const MODE_IDS = MODES.map((m) => m.id);
 
@@ -45,8 +48,52 @@ function perfectResponse(drill: ReturnType<typeof generateDrill>): Response {
         kind: 'take',
         take: synthesizeTake(q.score, { tempo: q.tempo, seed: 1 }),
       };
+    case 'play-piece':
+      // Also continuous rather than matched, and for the same reason: this is
+      // the performance grader's score, not a comparison against an answer.
+      return {
+        kind: 'take',
+        take: synthesizeTake(q.score, { tempo: q.tempoTarget, seed: 1 }),
+      };
   }
 }
+
+/**
+ * A catalogue for the Repertoire mode to draw on.
+ *
+ * Core cannot import `@etude/content` — content depends on core, not the other
+ * way round — so the tests register material of their own, which is exactly the
+ * seam the registry exists for. Generated phrases stand in for pieces: what is
+ * under test is the mode, not the engraving.
+ */
+function registerTestRepertoire(): void {
+  const key = [...allKeys('major')].find((k) => keyId(k) === 'C-major')!;
+  registerRepertoire([1, 2, 3, 4, 5].map((level) => ({
+    id: `fixture-${level}`,
+    title: `Fixture ${level}`,
+    composer: null,
+    level,
+    teaches: `Level ${level} fixture.`,
+    tempo: 60 + level * 8,
+    score: generateSightReading(
+      {
+        key,
+        bars: 4,
+        timeSignature: { beats: 4, beatType: 4 },
+        range: [55, 79],
+        hands: 2,
+        rhythmUnits: [1, 0.5],
+        maxLeap: 4,
+        stepBias: 0.75,
+        allowRests: true,
+        tempo: 60 + level * 8,
+      },
+      100 + level,
+    ),
+  })));
+}
+
+registerTestRepertoire();
 
 describe('mode metadata', () => {
   it('describes every mode, including why it exists', () => {
@@ -54,6 +101,19 @@ describe('mode metadata', () => {
       expect(m.name.length, m.id).toBeGreaterThan(0);
       expect(m.why.length, m.id).toBeGreaterThan(20);
       expect(modeMeta(m.id).id).toBe(m.id);
+    }
+  });
+
+  it('marks exactly the modes that record a performance as standalone', () => {
+    // The invariant that keeps the flag honest. A take needs a metronome, a
+    // count-in and a report; the shared runner has none of those and renders
+    // nothing for a question kind it does not know, so a mode whose question is
+    // a performance must not be schedulable into a session, and one whose
+    // question is an answer must not be shut out of them.
+    const TAKE_KINDS = new Set(['play-independence', 'play-piece']);
+    for (const mode of MODES) {
+      const drill = generateDrill({ modeId: mode.id, rungIndex: 0, seed: 17 });
+      expect(TAKE_KINDS.has(drill.question.kind), mode.id).toBe(mode.standalone);
     }
   });
 
@@ -137,11 +197,12 @@ describe('drill generation', () => {
           const drill = generateDrill({ modeId, rungIndex: rung, seed: rng.int(0, 1e9) });
           const grade = gradeDrill(drill, perfectResponse(drill));
           const label = `${modeId}/${rung} seed ${drill.seed}`;
-          if (modeId === 'independence') {
-            // The only mode graded on a measurement rather than a match. Even
+          if (modeId === 'independence' || modeId === 'repertoire') {
+            // The two modes graded on a measurement rather than a match. Even
             // a mechanically exact take reads a percent or two of entrainment,
-            // because the measure is continuous — demanding a literal 1 would
-            // be asserting a precision the number does not carry.
+            // or a millisecond or two of timing deviation, because the measure
+            // is continuous — demanding a literal 1 would be asserting a
+            // precision the number does not carry.
             expect(grade.correctness, label).toBeGreaterThan(0.95);
           } else {
             expect(grade.correctness, label).toBeCloseTo(1, 5);
@@ -186,7 +247,11 @@ describe('drill generation', () => {
       const drill = generateDrill({ modeId, rungIndex: 0, seed: 11 });
       const evidence = evidenceFor(drill, gradeDrill(drill, perfectResponse(drill)));
       expect(evidence.length, modeId).toBeGreaterThan(0);
-      for (const e of evidence) expect(e.correctness).toBeCloseTo(1, 5);
+      const continuous = modeId === 'independence' || modeId === 'repertoire';
+      for (const e of evidence) {
+        if (continuous) expect(e.correctness, modeId).toBeGreaterThan(0.95);
+        else expect(e.correctness, modeId).toBeCloseTo(1, 5);
+      }
     }
   });
 });
