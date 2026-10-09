@@ -8,6 +8,9 @@ import { LatencyCalibration } from '@/components/LatencyCalibration';
 import { input } from '@/lib/input/manager';
 import { requestPersistence, storageEstimate } from '@/db/schema';
 import { exportLog, importLog } from '@/db/log';
+import { formatProbeReport } from '@etude/core';
+import { collectDeviceProbes, withTimeout, type Probe } from '@/lib/device/probes';
+import { useFullscreen, type FullscreenAttempt } from '@/lib/fullscreen';
 
 /**
  * Device capability probe.
@@ -21,49 +24,26 @@ import { exportLog, importLog } from '@/db/log';
  * attached and every open question becomes a fact.
  */
 
-/** Reject rather than hang. Used for anything that can sit behind a prompt. */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
-  ]);
-}
-
-interface Probe {
-  readonly label: string;
-  readonly value: string;
-  readonly status: 'good' | 'bad' | 'warn' | 'info';
-  readonly note?: string;
-}
-
 export default function DiagnosticsPage() {
   const [probes, setProbes] = useState<Probe[]>([]);
   const [midiLog, setMidiLog] = useState<string[]>([]);
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
+  const fullscreen = useFullscreen();
+  const [fullscreenResult, setFullscreenResult] = useState<FullscreenAttempt | null>(null);
+  // Copy can fail where the Clipboard API is missing or gated, so the report is
+  // also offered as selectable text rather than only as a button that might not.
+  const [reportText, setReportText] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const run = useCallback(async () => {
     setBusy(true);
     const out: Probe[] = [];
 
-    out.push({
-      label: 'User agent',
-      value: navigator.userAgent,
-      status: 'info',
-    });
-    out.push({
-      label: 'Display mode',
-      value: window.matchMedia('(display-mode: standalone)').matches
-        ? 'standalone (installed)'
-        : 'browser tab',
-      status: window.matchMedia('(display-mode: standalone)').matches ? 'good' : 'warn',
-      note: 'Installed to the home screen improves the odds of durable storage.',
-    });
-    out.push({
-      label: 'Viewport',
-      value: `${window.innerWidth}×${window.innerHeight} @ ${window.devicePixelRatio}x`,
-      status: 'info',
-    });
+    // --- How it looks, and how it was launched ------------------------------
+    // First, because these decide whether anything below is even legible: a
+    // browser that cannot read the theme paints this whole page black on white.
+    out.push(...(await collectDeviceProbes()));
 
     // --- The question that decides the MIDI architecture -------------------
     const midiSupported = typeof navigator.requestMIDIAccess === 'function';
@@ -217,6 +197,35 @@ export default function DiagnosticsPage() {
 
   useEffect(() => { void run(); }, [run]);
 
+  const testFullscreen = useCallback(async () => {
+    setFullscreenResult(await fullscreen.enter());
+  }, [fullscreen]);
+
+  const buildReport = useCallback((): string => {
+    const header = [
+      new Date().toISOString(),
+      window.location.href,
+      fullscreenResult
+        ? `Full screen test: ${fullscreenResult.ok ? 'worked' : 'did not work'} — ${fullscreenResult.detail}`
+        : 'Full screen test: not run',
+    ];
+    return formatProbeReport(probes, header);
+  }, [probes, fullscreenResult]);
+
+  const copyReport = useCallback(async () => {
+    const text = buildReport();
+    setReportText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Leave the text showing, selectable. The button not working must not mean
+      // the report cannot be had.
+      setCopied(false);
+    }
+  }, [buildReport]);
+
   /** Live MIDI monitor: proves note-on/off and velocity actually arrive. */
   const listenMidi = useCallback(async () => {
     if (typeof navigator.requestMIDIAccess !== 'function') return;
@@ -311,7 +320,49 @@ export default function DiagnosticsPage() {
         >
           {listening ? 'Listening for MIDI' : 'Monitor MIDI input'}
         </button>
+        <button
+          type="button"
+          onClick={() => void (fullscreen.entered ? fullscreen.exit() : testFullscreen())}
+          disabled={!fullscreen.supported}
+          className="tap rounded-xl bg-raised px-6 font-semibold disabled:opacity-50"
+          data-testid="test-fullscreen"
+        >
+          {fullscreen.entered ? 'Leave full screen' : 'Test full screen'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void copyReport()}
+          disabled={probes.length === 0}
+          className="tap rounded-xl bg-raised px-6 font-semibold disabled:opacity-50"
+          data-testid="copy-report"
+        >
+          {copied ? 'Copied' : 'Copy report'}
+        </button>
       </div>
+
+      {fullscreenResult && (
+        <p
+          className={`mt-3 rounded-xl px-4 py-3 text-sm ${
+            fullscreenResult.ok ? 'bg-raised text-good' : 'bg-raised text-warn'
+          }`}
+          role="status"
+          data-testid="fullscreen-result"
+        >
+          Full screen: {fullscreenResult.detail}
+        </p>
+      )}
+
+      {reportText && (
+        <textarea
+          readOnly
+          value={reportText}
+          rows={12}
+          onFocus={(e) => e.currentTarget.select()}
+          className="mt-3 w-full rounded-xl border border-hairline bg-black/40 p-4 font-mono text-xs leading-relaxed text-ink-dim"
+          aria-label="Device report, ready to copy"
+          data-testid="report-text"
+        />
+      )}
 
       {midiLog.length > 0 && (
         <pre className="mt-4 max-h-64 overflow-auto rounded-xl border border-hairline bg-black/40 p-4 text-xs leading-relaxed text-good">
