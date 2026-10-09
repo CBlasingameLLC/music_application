@@ -28,6 +28,9 @@ export * from './input/types';
 export * from './input/onsetPicker';
 export * from './analytics/fold';
 export * from './analytics/series';
+export * from './device/engine';
+export * from './device/color';
+export * from './device/report';
 
 export * from './events/types';
 
