@@ -206,7 +206,7 @@ function Repertoire() {
     <div className="mx-auto max-w-5xl px-5 pt-8 pb-24">
       <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-3xl font-bold">Repertoire</h1>
-        <Link href="/library" className="text-sm text-ink-faint underline">Library</Link>
+        <Link href="/library" className="tap text-sm text-ink-faint underline">Library</Link>
       </div>
       <p className="mt-2 max-w-2xl text-sm text-ink-faint">{modeMeta('repertoire').why}</p>
 
@@ -276,9 +276,10 @@ function Repertoire() {
               <TroubleRow bars={history.trouble} onLoop={loopWorstBar} />
             )}
 
-            <label className="mt-4 flex items-center gap-2 text-sm text-ink-dim">
+            <label className="mt-2 flex min-h-12 items-center gap-3 text-sm text-ink-dim">
               <input
                 type="checkbox"
+                className="h-5 w-5 shrink-0 accent-accent"
                 checked={click}
                 onChange={(e) => setClick(e.target.checked)}
                 data-testid="toggle-click"

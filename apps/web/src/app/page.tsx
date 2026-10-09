@@ -125,7 +125,7 @@ export default function TodayPage() {
       </section>
 
       <footer className="mt-12 pb-6 text-center">
-        <Link href="/diagnostics" className="text-sm text-ink-faint underline">
+        <Link href="/diagnostics" className="tap text-sm text-ink-faint underline">
           Device diagnostics
         </Link>
       </footer>

@@ -161,7 +161,7 @@ export default function IndependenceLabPage() {
     <div className="mx-auto max-w-5xl px-5 pt-8 pb-24">
       <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-3xl font-bold">Independence Lab</h1>
-        <Link href="/practice" className="text-sm text-ink-faint underline">
+        <Link href="/practice" className="tap text-sm text-ink-faint underline">
           Practice
         </Link>
       </div>

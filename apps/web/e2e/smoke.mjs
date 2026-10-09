@@ -15,6 +15,7 @@
  */
 
 import { chromium } from 'playwright';
+import { DEFAULT_PROFILE, contextOptions } from './devices.mjs';
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3311';
 const CHROME =
@@ -30,12 +31,12 @@ const bad = (m) => {
 const browser = await chromium.launch(
   process.env.CHROME_PATH === '' ? {} : { executablePath: CHROME },
 );
-const ctx = await browser.newContext({
-  viewport: { width: 1280, height: 800 },
-  deviceScaleFactor: 2,
-  hasTouch: true,
-  isMobile: true,
-});
+// The device the app is built for unless told otherwise. `DEVICE=pixel-7` runs
+// the same flows as another emulated Android profile — see devices.mjs for what
+// that can and cannot tell you.
+const PROFILE = process.env.DEVICE ?? DEFAULT_PROFILE;
+const ctx = await browser.newContext(contextOptions(PROFILE, browser.version()));
+console.log(`\n(emulating ${PROFILE}, engine ${browser.version()})`);
 const page = await ctx.newPage();
 
 const consoleErrors = [];
@@ -316,6 +317,109 @@ try {
   ]) {
     if (probes.includes(key)) ok(`probe: ${key}`);
     else bad(`probe missing: ${key}`);
+  }
+
+  console.log('\n== Is it the browser, or is it the app ==');
+  {
+    // The rows that answer "why does this look wrong on that device". Under an
+    // emulated profile they must all be healthy: a regression in any of them
+    // would otherwise only show up as an unexplained blank report on the tablet.
+    // Matched on the label exactly. A substring match is a trap here: the
+    // "Display mode" row's explanation mentions the manifest, so looking up
+    // "Manifest" by substring read the wrong row — and the lookups that happened
+    // to work did so only because of the order the rows are in.
+    const rowText = async (label) => {
+      const row = page
+        .locator('[data-testid="device-probes"] > div')
+        .filter({ has: page.getByText(label, { exact: true }) })
+        .first();
+      return (await row.innerText()).replace(/\s+/g, ' ');
+    };
+
+    const browserRow = await rowText('Browser');
+    if (PROFILE.startsWith('fire')) {
+      // The emulated Fire profile sends a Silk-shaped user agent, so the engine
+      // parser has to recognise Silk and read the Chromium version through it.
+      if (/Silk .*Chromium \d+ .*Android 11/.test(browserRow)) ok(`browser identified: ${browserRow.slice(8, 70)}`);
+      else bad(`Silk not recognised: ${browserRow.slice(0, 100)}`);
+    } else if (/Chrome/.test(browserRow)) {
+      ok(`browser identified: ${browserRow.slice(8, 70)}`);
+    } else {
+      bad(`browser not identified: ${browserRow.slice(0, 100)}`);
+    }
+
+    const engineRow = await rowText('Engine');
+    if (/new enough/.test(engineRow)) ok('engine is new enough for the theme');
+    else bad(`engine verdict: ${engineRow.slice(0, 100)}`);
+
+    const themeRow = await rowText('Theme');
+    if (/resolved/.test(themeRow) && !/NOT/.test(themeRow)) ok('the dark theme resolved');
+    else bad(`theme verdict: ${themeRow.slice(0, 120)}`);
+
+    const cssRow = await rowText('CSS features');
+    if (!/✗/.test(cssRow) && /oklch\(\) ✓/.test(cssRow)) ok('every CSS feature the app uses is supported');
+    else bad(`CSS support: ${cssRow.slice(0, 140)}`);
+
+    const manifestRow = await rowText('Manifest');
+    if (/display standalone/.test(manifestRow)) ok('the manifest is read back as standalone');
+    else bad(`manifest row: ${manifestRow.slice(0, 120)}`);
+
+    if ((await rowText('Display mode')).length > 0) ok('display mode is reported');
+    else bad('no display mode row');
+
+    // A touch profile must be judged as one. This once silently was not.
+    const inputRow = await rowText('Input');
+    if (/coarse pointer · no hover/.test(inputRow)) ok('the page is judged as a touch device');
+    else bad(`input row: ${inputRow.slice(0, 100)}`);
+
+    // The report is what someone pastes from the tablet. It has to carry the
+    // headline and put problems first.
+    await page.getByTestId('copy-report').click();
+    await page.waitForSelector('[data-testid="report-text"]', { timeout: 5000 });
+    const report = await page.getByTestId('report-text').inputValue();
+    if (report.startsWith('Étude device report') && /\[ ok \] Theme: resolved/.test(report)) {
+      ok('the copy-report block is readable and carries the verdicts');
+    } else {
+      bad(`report malformed: ${JSON.stringify(report.slice(0, 120))}`);
+    }
+    const firstMark = (report.match(/^\[(FAIL|warn| ok |info)\]/m) ?? [])[1];
+    const lastFail = report.lastIndexOf('[FAIL]');
+    const firstGood = report.indexOf('[ ok ]');
+    if (lastFail === -1 || lastFail < firstGood) ok('problems are listed before things that are fine');
+    else bad(`a failure is listed after a passing row (first mark ${firstMark})`);
+  }
+
+  console.log('\n== Full screen ==');
+  {
+    // Where the Fullscreen API exists, the app offers it: it is the one thing a
+    // page can do about a browser toolbar that an installed icon failed to hide.
+    await page.getByTestId('test-fullscreen').click();
+    await page.waitForSelector('[data-testid="fullscreen-result"]', { timeout: 5000 });
+    const result = (await page.getByTestId('fullscreen-result').innerText()).trim();
+    if (/Entered|Rejected|not fullscreen|not available/.test(result)) {
+      ok(`the full-screen test reports what happened: ${result.slice(0, 80)}`);
+    } else {
+      bad(`full-screen test said nothing useful: ${JSON.stringify(result)}`);
+    }
+    await page.evaluate(() => document.exitFullscreen?.().catch(() => undefined));
+
+    await page.goto(BASE, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(500);
+    const offered = await page.getByTestId('enter-fullscreen').count();
+    if (offered === 1) {
+      ok('the Today screen offers full screen when the browser allows it');
+      await page.getByTestId('enter-fullscreen').click();
+      await page.waitForTimeout(600);
+      const stillOffered = await page.getByTestId('enter-fullscreen').count();
+      const inFullscreen = await page.evaluate(() => document.fullscreenElement !== null);
+      // Once it is on, the control has nothing left to offer.
+      if (inFullscreen && stillOffered === 0) ok('and hides itself once full screen is on');
+      else if (!inFullscreen) ok('the browser declined the request, and the button stayed available');
+      else bad('full screen is on but the button is still showing');
+      await page.evaluate(() => document.exitFullscreen?.().catch(() => undefined));
+    } else {
+      bad('the Today screen does not offer full screen though the API is available');
+    }
   }
 
   console.log('\n== Trends ==');

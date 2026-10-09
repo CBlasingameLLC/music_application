@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "node e2e/smoke.mjs"
+    "test:e2e": "node e2e/smoke.mjs",
+    "test:layout": "node e2e/layout.mjs"
   },
   "dependencies": {
     "@etude/content": "workspace:*",

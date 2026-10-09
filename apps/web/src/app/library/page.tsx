@@ -169,10 +169,10 @@ export default function LibraryPage() {
               without importing anything. This is for pieces you want to learn.
             </p>
             <div className="mt-4 flex justify-center gap-4">
-              <Link href="/play/sight-read" className="text-sm text-accent underline">
+              <Link href="/play/sight-read" className="tap text-sm text-accent underline">
                 Sight-Read Sprint
               </Link>
-              <Link href="/play/repertoire" className="text-sm text-accent underline">
+              <Link href="/play/repertoire" className="tap text-sm text-accent underline">
                 Play something included
               </Link>
             </div>
