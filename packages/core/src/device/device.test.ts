@@ -23,6 +23,16 @@ const SILK_DESKTOP =
 const SILK_OLD =
   'Mozilla/5.0 (Linux; Android 4.4.3; KFTHWI Build/KTU84M) AppleWebKit/537.36 '
   + '(KHTML, like Gecko) Silk/44.1.54 like Chrome/44.0.2403.63 Safari/537.36';
+// Android's WebView, which is what the APK runs in. It marks itself `; wv)` and
+// carries `Version/4.0` plus a bare `Chrome/` token — no browser name at all. The
+// second string is Chrome's reduced-UA form, where the platform is frozen to a
+// placeholder ("Android 10; K") and so says nothing about the real device.
+const WEBVIEW_TABLET =
+  'Mozilla/5.0 (Linux; Android 11; KFTRWI Build/RS8332.3115N; wv) AppleWebKit/537.36 '
+  + '(KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.65 Safari/537.36';
+const WEBVIEW_REDUCED =
+  'Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 (KHTML, like Gecko) '
+  + 'Version/4.0 Chrome/138.0.0.0 Mobile Safari/537.36';
 const CHROME_ANDROID =
   'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) '
   + 'Chrome/141.0.0.0 Mobile Safari/537.36';
@@ -94,6 +104,28 @@ describe('reading a user agent', () => {
     });
   });
 
+  it('recognises an Android WebView, which is what the app runs in', () => {
+    // A WebView has no browser token, only `Chrome/<n>` — so without the `wv`
+    // marker it would be reported as Chrome, and the report would say "Chrome"
+    // about an app that is not running in Chrome at all.
+    expect(parseUserAgent(WEBVIEW_TABLET)).toMatchObject({
+      family: 'webview', chromiumMajor: 110, browserVersion: '110.0.5481.65',
+      android: '11', model: 'KFTRWI', desktopView: false,
+    });
+  });
+
+  it('treats the reduced-UA placeholder model as no model at all', () => {
+    // "K" is not a device. Reporting it would put a made-up model into a bug
+    // report that someone will read as fact.
+    expect(parseUserAgent(WEBVIEW_REDUCED)).toMatchObject({
+      family: 'webview', chromiumMajor: 138, model: null,
+    });
+  });
+
+  it('does not take a plain Chrome for a WebView', () => {
+    expect(parseUserAgent(CHROME_ANDROID).family).toBe('chrome');
+  });
+
   it('gives no Chromium version for engines that are not Chromium', () => {
     expect(parseUserAgent(FIREFOX_ANDROID)).toMatchObject({
       family: 'firefox', chromiumMajor: null,
@@ -137,6 +169,14 @@ describe('judging the engine against the theme', () => {
     expect(engineVerdict(parseUserAgent(SILK_OLD)).ok).toBe(false);
   });
 
+  it('judges a WebView by its Chromium version like any other engine', () => {
+    // The APK's engine is the device's WebView, not a browser the user chose —
+    // so an old one is the same failure as an old browser, and just as fatal to
+    // the theme.
+    expect(engineVerdict(parseUserAgent(WEBVIEW_TABLET)).ok).toBe(false);
+    expect(engineVerdict(parseUserAgent(WEBVIEW_REDUCED)).ok).toBe(true);
+  });
+
   it('declines to judge what it cannot', () => {
     // A wrong verdict is worse than none: it sends someone chasing a cause that
     // is not there. Firefox and Safari have their own floors.
@@ -151,6 +191,9 @@ describe('judging the engine against the theme', () => {
     expect(describeBrowser(parseUserAgent(CHROME_ANDROID)))
       .toBe('Chrome 141.0.0.0 · Android 14 · Pixel 7');
     expect(describeBrowser(parseUserAgent(SILK_DESKTOP))).toMatch(/desktop view/);
+    // A WebView's own version *is* the Chromium version, so it is not said twice.
+    expect(describeBrowser(parseUserAgent(WEBVIEW_TABLET)))
+      .toBe('Android WebView 110.0.5481.65 · Android 11 · KFTRWI');
   });
 });
 
