@@ -170,6 +170,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           MODE: ${{ steps.signing.outputs.mode }}
         run: |
+          # `run` defaults to `bash -e` without pipefail, so without this the
+          # `| tee` below would hide a failing verification behind tee's exit status.
+          set -o pipefail
           suffix=""; [ "$MODE" = official ] || suffix="-unofficial"
           bash apps/android/scripts/verify-apk.sh "dist/etude-$VERSION-debug.apk" --version "$VERSION"
           bash apps/android/scripts/verify-apk.sh "dist/etude-$VERSION$suffix.apk" --release --version "$VERSION" | tee verify.log
