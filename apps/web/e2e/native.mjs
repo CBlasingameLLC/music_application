@@ -100,6 +100,26 @@ if (TARGET === 'android') {
   console.log(`  info  WebView Chromium: ${engineMajor ?? 'unknown'} (the theme needs 111)`);
 }
 
+// On a loaded CI emulator the app can be attached to before its window is laid
+// out, or while something else has the screen. A WebView in that state reports a
+// 0x0 viewport and never fires animation frames, which Playwright's click waits
+// on — so every check that follows fails for a reason that has nothing to do with
+// what it checks. Wait for the page to be genuinely on screen, and say what the
+// state was if it never is.
+if (TARGET === 'android') {
+  const state = () => page.evaluate(() => ({
+    visibility: document.visibilityState,
+    focus: document.hasFocus(),
+    size: [innerWidth, innerHeight],
+  })).catch((error) => ({ error: String(error).split('\n')[0] }));
+  let now = await state();
+  for (let waited = 0; waited < 30_000 && !(now.visibility === 'visible' && now.size?.[0] > 0 && now.size?.[1] > 0); waited += 500) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    now = await state();
+  }
+  console.log(`  info  page state: ${JSON.stringify(now)}`);
+}
+
 const problems = [];
 page.on('pageerror', (e) => problems.push(`pageerror: ${String(e).slice(0, 200)}`));
 page.on('console', (m) => {
@@ -130,7 +150,9 @@ async function section(title, body) {
   try {
     await body();
   } catch (error) {
-    bad(`${title}: ${String(error).split('\n')[0]}`);
+    // The first line says what failed; the call log under it says why ("element
+    // is not visible", "intercepts pointer events"), which is the part worth having.
+    bad(`${title}: ${String(error).split('\n').slice(0, 8).join(' / ')}`);
   }
   const fresh = problems.slice(before);
   check(fresh.length === 0, 'no console errors, failed requests or 4xx/5xx',

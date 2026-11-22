@@ -31,13 +31,48 @@ step() { printf '\n######## %s\n' "$*"; }
 fail() { echo "  FAIL  $*"; failed=1; }
 launch() { adb shell am start -W -n "$activity" | grep -E "Status|Activity|TotalTime|Error"; }
 
+# What the device was doing when something went wrong. A CI emulator is slow and
+# shared, and the failures that matter on it ("the page is 0x0", "the target
+# closed") look the same whether the app is at fault or the emulator is, until
+# the foreground window, the activity state and the app's own log lines are read
+# beside them. Kept as an artifact, and the useful lines echoed into the log.
+diagnose() {
+  local label="$1" out="$shots/diagnostics-$1.txt"
+  {
+    echo "## foreground"
+    adb shell dumpsys window | grep -E "mCurrentFocus|mFocusedApp|mInputMethodTarget|isKeyguardShowing|mScreenOn|screenState" | head -8
+    echo "## activities"
+    adb shell dumpsys activity activities | grep -E "ResumedActivity|mFocusedApp|topResumedActivity|state=" | head -12
+    echo "## process"
+    adb shell pidof "$app" || echo "(no process)"
+    echo "## memory"
+    adb shell dumpsys meminfo "$app" 2>/dev/null | grep -E "TOTAL|Native Heap|Dalvik Heap" | head -4
+    adb shell cat /proc/meminfo | grep -E "MemAvailable|MemTotal"
+    echo "## log (this app, the WebView, the activity manager)"
+    adb logcat -d -t 600 | grep -E "etude|chromium|AndroidRuntime|ActivityManager|ANR|lowmemorykiller|WindowManager" | tail -60
+  } > "$out" 2>&1
+  adb exec-out screencap -p > "$shots/screen-$label.png" 2>/dev/null
+  echo "  info  diagnostics kept: $(basename "$out"), screen-$label.png"
+  grep -E "^## |mCurrentFocus|ResumedActivity|no process|ANR|lowmemorykiller|FATAL" "$out" | head -20
+}
+
 step "device"
+# Nothing that can cover the app or turn the screen off during a run: crash and
+# ANR dialogs take focus on a slow emulator, and a locked or dark screen makes a
+# WebView report a 0x0 viewport.
+adb shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 # A CI emulator draws in software, and a 2560x1600 surface is four times the
 # pixels of the 1280x800 the app is designed around. Shrinking the display to that
 # size at mdpi keeps the layout in CSS pixels exactly what a Fire HD 10 gets (1280
 # by 800), and makes everything the WebView draws a quarter as expensive.
 adb shell wm size 1280x800 >/dev/null
 adb shell wm density 160 >/dev/null
+# The display change is applied asynchronously; launching into the middle of it is
+# how an activity ends up laid out twice.
+sleep 4
+adb shell input keyevent KEYCODE_HOME
 echo "android $(adb shell getprop ro.build.version.release | tr -d '\r') (API $(adb shell getprop ro.build.version.sdk | tr -d '\r')), $(adb shell getprop ro.product.model | tr -d '\r')"
 # The engine the app will run on, as the OS reports it.
 adb shell dumpsys webviewupdate | grep -E "Current WebView package|WebView packages" | head -3 | tr -d '\r'
@@ -51,13 +86,13 @@ adb logcat -c
 launch
 
 step "debug build: the same suite the desktop runs, against the real WebView"
-( cd "$web" && TARGET=android node e2e/native.mjs ) || fail "native suite failed"
+( cd "$web" && TARGET=android node e2e/native.mjs ) || { fail "native suite failed"; diagnose suite; }
 
 step "debug build: force-stop, relaunch, is the data still there"
 adb shell am force-stop "$app"
 sleep 2
 launch
-( cd "$web" && TARGET=android PHASE=read node e2e/native.mjs ) || fail "data did not survive a restart"
+( cd "$web" && TARGET=android PHASE=read node e2e/native.mjs ) || { fail "data did not survive a restart"; diagnose restart; }
 
 step "debug build: anything the app logged as an error"
 # Capacitor logs through the "Capacitor" tag; Chromium's console reaches logcat as
