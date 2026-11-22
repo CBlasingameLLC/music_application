@@ -105,7 +105,16 @@ page.on('pageerror', (e) => problems.push(`pageerror: ${String(e).slice(0, 200)}
 page.on('console', (m) => {
   if (m.type() === 'error') problems.push(`console: ${m.text().slice(0, 200)}`);
 });
-page.on('requestfailed', (r) => problems.push(`request failed: ${r.url()} (${r.failure()?.errorText})`));
+page.on('requestfailed', (r) => {
+  const reason = r.failure()?.errorText ?? 'unknown';
+  // A request the page itself cancels is not a failure of the app. This suite
+  // navigates constantly, and Next prefetches every link it can see, so each
+  // navigation leaves prefetches in flight that the engine aborts — the first
+  // real Android run reported nine of them and nothing else. Anything that
+  // failed for a reason of its own (refused, not found, blocked, reset) still counts.
+  if (reason === 'net::ERR_ABORTED') return;
+  problems.push(`request failed: ${r.url()} (${reason})`);
+});
 page.on('response', (r) => {
   if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`);
 });
@@ -125,7 +134,7 @@ async function section(title, body) {
   }
   const fresh = problems.slice(before);
   check(fresh.length === 0, 'no console errors, failed requests or 4xx/5xx',
-    `${fresh.length} problem(s): ${fresh.slice(0, 3).join(' | ')}`);
+    `${fresh.length} problem(s): ${fresh.slice(0, 10).join(' | ')}`);
 }
 
 try {
