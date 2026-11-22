@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AppFrame } from '@/components/AppFrame';
+import { ENGINE_GUARD } from '@/lib/engineGuard';
 
 export const metadata: Metadata = {
   title: 'Étude',
@@ -29,6 +30,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        {/* First thing the page runs: see engineGuard.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: ENGINE_GUARD }} />
+      </head>
       <body className="min-h-full antialiased">
         <AppFrame>{children}</AppFrame>
       </body>

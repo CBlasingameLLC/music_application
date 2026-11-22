@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { requestPersistence } from '@/db/schema';
+import { NATIVE_BUILD } from '@/lib/native';
 
 const NAV = [
   { href: '/', label: 'Today' },
@@ -23,8 +24,14 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Register the service worker ourselves rather than at import time, so it
-    // never races the first paint.
-    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    // never races the first paint. Not in the APK: its files are bundled, there
+    // is no worker to register, and one that cached an older copy would hide an
+    // app update behind the version it remembered.
+    if (
+      'serviceWorker' in navigator
+      && process.env.NODE_ENV === 'production'
+      && !NATIVE_BUILD
+    ) {
       navigator.serviceWorker.register('/sw.js').catch(() => {
         // A failed registration costs offline support, not the app.
       });

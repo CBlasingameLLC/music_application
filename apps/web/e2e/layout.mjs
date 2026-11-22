@@ -26,7 +26,7 @@ import { PROFILES, contextOptions, profileNames } from './devices.mjs';
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3311';
 const CHROME =
-  process.env.CHROME_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  process.env.CHROME_PATH ?? '/opt/pw-browsers/chromium';
 const OUT = process.env.ARTIFACT_DIR ?? 'e2e-artifacts';
 const VERBOSE = process.argv.includes('--verbose');
 

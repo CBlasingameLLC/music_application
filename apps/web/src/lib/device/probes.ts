@@ -26,6 +26,8 @@ import {
   type ReportRow,
 } from '@etude/core';
 
+import { isNativeApp, nativePlatform } from '@/lib/native';
+
 export type Probe = ReportRow;
 
 /** Reject rather than hang. Used for anything that can sit behind a prompt. */
@@ -144,7 +146,18 @@ export async function collectDeviceProbes(): Promise<Probe[]> {
   const engine = engineVerdict(info);
   const touch = navigator.maxTouchPoints > 0;
 
+  const native = isNativeApp();
+
   // --- What is this ---------------------------------------------------------
+  rows.push({
+    label: 'App shell',
+    value: native ? `Étude Android app (${nativePlatform()})` : 'a web browser',
+    status: 'info',
+    note: native
+      ? 'This is the installed APK: a WebView inside the app, with no browser around it. Its engine is the device\'s Android System WebView, which updates separately from the system itself.'
+      : undefined,
+  });
+
   // Desktop view only means something on a touch device; on a laptop it is just
   // what the browser always sends.
   const desktopOnTouch = info.desktopView && touch;
@@ -169,11 +182,14 @@ export async function collectDeviceProbes(): Promise<Probe[]> {
   const asApp = mode === 'fullscreen' || mode === 'standalone';
   rows.push({
     label: 'Display mode',
-    value: asApp ? `${mode} (running as an app)` : mode === 'minimal-ui'
-      ? 'minimal-ui (launched with a reduced toolbar)'
-      : 'browser (not launched as an app)',
-    status: asApp ? 'good' : 'warn',
-    note: 'If you opened this from a home-screen icon and it says browser, the icon only opened a page: the browser made a bookmark rather than launching an app. The manifest asks for standalone; a browser is free to ignore that. The full-screen test below shows whether it can still be made borderless.',
+    // A WebView is never "standalone" — that is a browser launching a PWA — but
+    // it is as app-like as it gets, so it must not be reported as a failure.
+    value: native ? 'native app (no browser around it)' : asApp
+      ? `${mode} (running as an app)` : mode === 'minimal-ui'
+        ? 'minimal-ui (launched with a reduced toolbar)'
+        : 'browser (not launched as an app)',
+    status: native || asApp ? 'good' : 'warn',
+    note: native ? undefined : 'If you opened this from a home-screen icon and it says browser, the icon only opened a page: the browser made a bookmark rather than launching an app. The manifest asks for standalone; a browser is free to ignore that. The full-screen test below shows whether it can still be made borderless.',
   });
 
   const screenW = window.screen.width;
@@ -210,9 +226,10 @@ export async function collectDeviceProbes(): Promise<Probe[]> {
   });
   rows.push({
     label: 'Install prompt API',
-    value: 'BeforeInstallPromptEvent' in window ? 'present' : 'absent',
+    value: native ? 'not applicable (already installed)'
+      : 'BeforeInstallPromptEvent' in window ? 'present' : 'absent',
     status: 'info',
-    note: 'Chrome offers installable apps through this event. A browser without it handles "Add to Home Screen" itself, and may only create a bookmark.',
+    note: native ? undefined : 'Chrome offers installable apps through this event. A browser without it handles "Add to Home Screen" itself, and may only create a bookmark.',
   });
   rows.push(await manifestProbe());
 

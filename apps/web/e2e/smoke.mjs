@@ -19,7 +19,7 @@ import { DEFAULT_PROFILE, contextOptions } from './devices.mjs';
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3311';
 const CHROME =
-  process.env.CHROME_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  process.env.CHROME_PATH ?? '/opt/pw-browsers/chromium';
 
 const failures = [];
 const ok = (m) => console.log(`  ok    ${m}`);
@@ -60,7 +60,7 @@ try {
 
   console.log('\n== Practice ==');
   await page.getByRole('link', { name: 'Start practising' }).click();
-  await page.waitForURL('**/practice');
+  await page.waitForURL(/\/practice\/?$/); // the native export adds a trailing slash
   await page.waitForTimeout(600);
   const begin = page.getByRole('button', { name: /^Begin —/ });
   if (await begin.isVisible()) ok(`session plan: ${(await begin.textContent()).trim()}`);

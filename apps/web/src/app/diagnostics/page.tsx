@@ -11,6 +11,7 @@ import { exportLog, importLog } from '@/db/log';
 import { formatProbeReport } from '@etude/core';
 import { collectDeviceProbes, withTimeout, type Probe } from '@/lib/device/probes';
 import { useFullscreen, type FullscreenAttempt } from '@/lib/fullscreen';
+import { saveTextFile, wasCancelled } from '@/lib/files';
 
 /**
  * Device capability probe.
@@ -256,13 +257,11 @@ export default function DiagnosticsPage() {
 
   const doExport = async () => {
     const json = await exportLog();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `etude-log-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      await saveTextFile(`etude-log-${new Date().toISOString().slice(0, 10)}.json`, json);
+    } catch (err) {
+      if (!wasCancelled(err)) alert(`Could not export the log: ${(err as Error).message}`);
+    }
   };
 
   const doImport = (file: File) => {
