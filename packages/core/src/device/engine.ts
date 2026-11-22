@@ -19,7 +19,7 @@
  */
 
 export type BrowserFamily =
-  | 'silk' | 'chrome' | 'edge' | 'samsung' | 'firefox' | 'safari' | 'unknown';
+  | 'silk' | 'webview' | 'chrome' | 'edge' | 'samsung' | 'firefox' | 'safari' | 'unknown';
 
 export interface BrowserInfo {
   readonly family: BrowserFamily;
@@ -54,10 +54,21 @@ function firstMatch(ua: string, pattern: RegExp): string | null {
   return match?.[1] ?? null;
 }
 
+/**
+ * `Build.MODEL` sits after the Android version, before `Build/` or `)`.
+ *
+ * Chrome's reduced user agent replaces it with the single letter "K" — a
+ * placeholder, not a device — and a report that says the model is "K" would be
+ * read as fact. So the placeholder reads as no model.
+ */
+function readModel(ua: string): string | null {
+  const model = firstMatch(ua, /Android\s+[\d.]+;\s*([^;)]+?)(?:\s+Build\/[^;)]*)?[;)]/);
+  return model === null || model === 'K' ? null : model;
+}
+
 export function parseUserAgent(ua: string): BrowserInfo {
   const android = firstMatch(ua, /Android\s+([\d.]+)/);
-  // `Build.MODEL` sits after the Android version, before `Build/` or `)`.
-  const model = firstMatch(ua, /Android\s+[\d.]+;\s*([^;)]+?)(?:\s+Build\/[^;)]*)?[;)]/);
+  const model = readModel(ua);
   const chromeToken = firstMatch(ua, /Chrome\/(\d+)/);
   const chromiumMajor = chromeToken === null ? null : Number(chromeToken);
 
@@ -73,6 +84,18 @@ export function parseUserAgent(ua: string): BrowserInfo {
       model: model === 'Linux' ? null : model,
       // Silk's desktop UA is the only one without an Android token.
       desktopView: android === null && /X11; Linux/.test(ua),
+    };
+  }
+
+  // An Android WebView — what the APK runs in — marks itself `; wv)` and has no
+  // browser name, only a bare `Chrome/` token. That number is the WebView's
+  // Chromium version, which is the engine that decides whether the theme
+  // resolves, so it is read as one rather than passed off as Chrome.
+  if (android !== null && /;\s*wv\)/.test(ua)) {
+    return {
+      family: 'webview', chromiumMajor,
+      browserVersion: firstMatch(ua, /Chrome\/([\d.]+)/),
+      android, model, desktopView: false,
     };
   }
 
@@ -174,12 +197,15 @@ export function engineVerdict(info: BrowserInfo): EngineVerdict {
 /** A one-line description, for a report someone will paste into a chat. */
 export function describeBrowser(info: BrowserInfo): string {
   const name = {
-    silk: 'Silk', chrome: 'Chrome', edge: 'Edge', samsung: 'Samsung Internet',
-    firefox: 'Firefox', safari: 'Safari', unknown: 'unknown browser',
+    silk: 'Silk', webview: 'Android WebView', chrome: 'Chrome', edge: 'Edge',
+    samsung: 'Samsung Internet', firefox: 'Firefox', safari: 'Safari',
+    unknown: 'unknown browser',
   }[info.family];
 
   const parts: string[] = [info.browserVersion ? `${name} ${info.browserVersion}` : name];
-  if (info.family !== 'chrome' && info.chromiumMajor !== null) {
+  // Chrome's and a WebView's own version *is* the Chromium version; everyone
+  // else carries a separate one worth stating.
+  if (info.family !== 'chrome' && info.family !== 'webview' && info.chromiumMajor !== null) {
     parts.push(`Chromium ${info.chromiumMajor}`);
   }
   if (info.android) parts.push(`Android ${info.android}`);

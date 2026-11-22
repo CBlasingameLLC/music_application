@@ -9,9 +9,14 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:e2e": "node e2e/smoke.mjs",
-    "test:layout": "node e2e/layout.mjs"
+    "test:layout": "node e2e/layout.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "serve:native": "node scripts/serve-export.mjs"
   },
   "dependencies": {
+    "@capacitor/core": "8.6.2",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/share": "8.0.3",
     "@etude/content": "workspace:*",
     "@etude/core": "workspace:*",
     "dexie": "4.4.5",

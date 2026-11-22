@@ -1,0 +1,91 @@
+apply plugin: 'com.android.application'
+
+import groovy.json.JsonSlurper
+
+// One source of truth for the version: apps/android/package.json. A release is
+// "the version in this file has no tag yet", so changing it is the act of
+// releasing, and the number on the tablet can never disagree with the tag.
+//
+// versionCode is what Android compares to decide whether an APK is an update, so
+// it has to rise with every release. major*10000 + minor*100 + patch does, as
+// long as minor and patch stay below 100 — which the release workflow checks.
+def etudeVersion = new JsonSlurper().parse(file('../../package.json')).version as String
+def etudeParts = etudeVersion.tokenize('.').collect { it as int }
+def etudeVersionCode = etudeParts[0] * 10000 + etudeParts[1] * 100 + etudeParts[2]
+
+android {
+    namespace = "app.etude.practice"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "app.etude.practice"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode etudeVersionCode
+        versionName etudeVersion
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // The release key comes from the environment and never from a file in the
+    // repository: an APK signed with a key anyone can read is an APK anyone can
+    // sign an "update" to. Without the variables the release build is simply
+    // unsigned, which the release workflow refuses to publish.
+    signingConfigs {
+        release {
+            def keystore = System.getenv('ETUDE_KEYSTORE_FILE')
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv('ETUDE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ETUDE_KEY_ALIAS')
+                keyPassword System.getenv('ETUDE_KEY_PASSWORD')
+                // v2 and v3 are required, not optional: Fire OS 8 will not
+                // install or update an app that carries only a v1 signature.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (System.getenv('ETUDE_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

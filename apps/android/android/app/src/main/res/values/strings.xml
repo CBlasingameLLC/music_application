@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Étude</string>
+    <string name="title_activity_main">Étude</string>
+    <string name="package_name">app.etude.practice</string>
+    <string name="custom_url_scheme">app.etude.practice</string>
+</resources>

@@ -9,7 +9,7 @@ mistaken for a tested device.
 |---|---|---|---|---|---|
 | **1. Emulated profile** | Playwright's Chromium at a device's size, pixel ratio, touch and UA | Overflow, targets too small, content under the bottom bar, wrong sizing | Old engines, Android fonts, system bars, Silk's install flow | yes, ~2 min | **yes** |
 | **2. On-device probes** | `/diagnostics` run on the real tablet | Engine too old, theme not resolving, how the app was launched, whether full screen works | Nothing — it *is* the device — but needs a person holding it | n/a | **yes** |
-| **3. Android emulator** | Headless AVD (`-no-window`) running real Android Chrome | Real fonts, system bars, a real (older) WebView/Chrome | Silk; installing a PWA | **no** — no `/dev/kvm` | no |
+| **3. Android emulator** | Headless AVD (`-no-window`) running the **APK** — the app in a real Android WebView | Real fonts and system bars, the WebView's own engine, the APK's manifest and routing, data surviving a restart | Silk; Amazon's WebView; installing a PWA | **no** — no `/dev/kvm`; it runs in CI | **yes**, in CI |
 | **4. Real device** | The tablet, driven over `adb` | Everything, including Silk | — | n/a | runbook below |
 
 For Apple the analogue of (1) is Playwright's WebKit build and of (3) is Xcode's
@@ -88,34 +88,43 @@ consistent with it not doing so; nothing here can prove that, because it is a
 property of Silk's install flow, not of the page. Treat it as unverified until
 the Display mode row on the tablet says otherwise.
 
-## Not built: tier 3, the real emulator
+## Tier 3, the real emulator: built, for the APK
 
-This container has no `/dev/kvm`, so an Android emulator cannot run here.
-GitHub-hosted `ubuntu-latest` runners can, and this repo is public, so it is
-free. The shape, from the
-[android-emulator-runner](https://github.com/ReactiveCircus/android-emulator-runner)
-README and Playwright's
-[Android docs](https://playwright.dev/docs/api/class-android):
+This container has no `/dev/kvm`, so an Android emulator cannot run here. GitHub's
+`ubuntu-latest` runners can, and this repo is public, so it is free: the
+`Android` workflow runs the app on an emulator on every relevant change. See
+[`apps/android/README.md`](../../android/README.md) for the whole pipeline; what
+matters for testing is below.
 
-1. Enable KVM before the action:
-   ```bash
-   echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-     | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-   sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-   ```
-2. `reactivecircus/android-emulator-runner@v2` with `api-level: 30` — Android 11,
-   the same base as Fire OS 8 — and `target: google_apis`. Its defaults are
-   already headless (`-no-window -gpu swiftshader_indirect`).
-3. `adb reverse tcp:3311 tcp:3311`, so the emulator's `localhost:3311` reaches
-   the runner. It must be `localhost`: anything else is not a secure context and
-   the service worker, OPFS and Web MIDI all switch off.
-4. Drive it with Playwright's `_android` API (`device.launchBrowser()`,
-   `device.screenshot()` — which includes the system bars).
+What runs on the emulator is **the APK**, not Chrome and not Silk. That is a
+different target from the one this page originally sketched, and a better one: the
+Fire tablet's browser is not available to an emulator, but the thing that makes
+the tablet look like an app is now an APK, and an APK can be tested.
 
-Known caveats, none tested: Playwright's Android support is **experimental**, and
-needs Chrome 105+ on the device; the Chrome baked into a system image can be old
-(`device.installApk()` can replace it); and installing a PWA to the home screen
-very likely cannot be exercised, so the standalone question stays open here too.
+- `emulator-test.sh` installs the **debug** build (its WebView is inspectable) and
+  runs `e2e/native.mjs` with `TARGET=android`. Playwright's experimental
+  [`_android`](https://playwright.dev/docs/api/class-android) API attaches to the
+  app's WebView over adb, so the *same* flows that run on desktop Chromium run
+  inside the real WebView: boot, navigation, every drill route, deep link, reload,
+  history, the borderless check, and the Diagnostics rows.
+- It then force-stops and relaunches the app and checks, with `PHASE=read`, that an
+  IndexedDB marker written before the restart is still there.
+- It installs the **release** build, which is deliberately not inspectable, and
+  checks from outside: it reaches the foreground, its process is alive, nothing
+  crashed, and a screenshot is kept.
+- Two emulators run. **Android 14 gates the change.** **Android 11** is the base of
+  Fire OS 8, so it is the nearest a runner gets to the tablet, but an emulator
+  image's stock WebView is whatever it shipped with. It is informational: if that
+  WebView is too old for the theme, the run proves the engine guard on a real old
+  WebView; if not, it proves the app runs on Android 11.
+
+`e2e/native.mjs` also runs on desktop (`TARGET=desktop`, the default) against
+`scripts/serve-export.mjs`, which reproduces Capacitor's asset-server routing. That
+is what makes the rule testable without Android. It is run against `--stock` as a
+negative control: with nothing in front of Capacitor's rule, six checks fail.
+
+Still untested, and not testable on a runner: **Amazon's WebView**, the Fire OS
+install flow, Web MIDI, and the share sheet's destinations.
 
 ## Tier 4: the real tablet
 

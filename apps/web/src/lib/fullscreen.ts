@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { isNativeApp } from '@/lib/native';
 
 export interface FullscreenAttempt {
   readonly ok: boolean;
@@ -28,8 +29,17 @@ export interface FullscreenAttempt {
   readonly detail: string;
 }
 
-/** Already running as an app: installed standalone, or fullscreen by manifest. */
+/**
+ * Already running as an app: the Android app, installed standalone, or
+ * fullscreen by manifest.
+ *
+ * The Android app is checked first because a WebView never matches
+ * `display-mode: standalone` — that media feature belongs to browsers launching
+ * a PWA — so without it the app would report itself as a browser tab and offer
+ * to hide a toolbar it does not have.
+ */
 export function runningAsApp(): boolean {
+  if (isNativeApp()) return true;
   return ['fullscreen', 'standalone'].some(
     (mode) => window.matchMedia(`(display-mode: ${mode})`).matches,
   );

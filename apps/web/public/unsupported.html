@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Étude needs a newer web engine</title>
+<!--
+  Deliberately not part of the app: plain HTML, no framework, no stylesheet, and
+  no colour written in anything newer than rgb(). It is shown when the device's
+  engine cannot draw the real app — so it cannot depend on being able to draw
+  anything fancy itself. See src/lib/engineGuard.ts.
+-->
+<style>
+  html, body { margin: 0; background: rgb(13, 15, 20); color: rgb(226, 229, 236); }
+  body { font: 18px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; padding: 40px 24px; }
+  main { max-width: 38em; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 8px; color: rgb(232, 168, 64); }
+  p { margin: 12px 0; }
+  ul { margin: 12px 0; padding-left: 1.2em; }
+  li { margin: 8px 0; }
+  code { font: 14px/1.4 monospace; word-break: break-all; color: rgb(170, 176, 190); }
+  .found { margin: 20px 0; padding: 14px 16px; background: rgb(28, 31, 40); border-radius: 12px; }
+  a.again { display: inline-block; margin-top: 16px; padding: 14px 22px; min-height: 24px;
+            background: rgb(38, 42, 54); color: rgb(226, 229, 236); border-radius: 12px;
+            text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Étude needs a newer web engine</h1>
+  <p>This device's web engine is too old to draw Étude. Rather than show a broken page,
+     Étude is stopping here.</p>
+
+  <div class="found">
+    <div id="engine">Checking the engine…</div>
+    <p><code id="ua"></code></p>
+  </div>
+
+  <p>The engine is not part of Étude; it belongs to the device:</p>
+  <ul>
+    <li><b>In the Android app</b> it is Android System WebView — on Fire tablets, Amazon WebView.
+        It is updated with the device's software, so install the latest system update, and
+        check for updates in the app store the device uses.</li>
+    <li><b>In a browser</b> it is the browser itself. Update it, or use a current Chrome,
+        Edge or Safari.</li>
+  </ul>
+
+  <p>If you think this device is fine — the check can be wrong — you can try the app anyway.</p>
+  <a class="again" id="again" href="/">Try anyway</a>
+</main>
+<script>
+  (function () {
+    var ua = navigator.userAgent || '';
+    var match = /Chrome\/(\d+)/.exec(ua);
+    document.getElementById('engine').textContent = match
+      ? 'This engine is Chromium ' + match[1] + '. Étude needs 111 or newer.'
+      : 'This engine could not be identified as Chromium. Étude needs Chromium 111 or newer, or the current Safari or Firefox.';
+    document.getElementById('ua').textContent = ua;
+    document.getElementById('again').addEventListener('click', function () {
+      // Remembered, so the check does not send the app straight back here.
+      try { window.localStorage.setItem('etude-engine-override', '1'); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

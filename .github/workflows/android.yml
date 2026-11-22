@@ -1,0 +1,294 @@
+name: Android
+
+# The Android app: the web build, bundled into a WebView shell and signed as an
+# APK. Three jobs, in order:
+#
+#   build      static export -> Capacitor -> Gradle -> sign -> verify the files
+#   emulator   install them on real Android and drive the app (debug build is
+#              inspectable, so it gets the full suite; release is checked from
+#              outside, because that is how it can be)
+#   release    publish the APK as a GitHub Release, only from main, only when
+#              apps/android/package.json carries a version that has no tag yet
+#
+# Releasing is therefore "change the version, merge". Nothing here publishes on a
+# pull request, and nothing publishes the same version twice.
+#
+# Signing: the release key comes from repository secrets and is used only on
+# main. Everything else — pull requests, forks, a main without secrets — is
+# signed with a throwaway key generated for the run, and is labelled unofficial
+# everywhere it appears. The release job refuses to publish an unofficial build:
+# a release signed with a key nobody keeps is one that cannot be updated in
+# place, and the person who installs it loses their data to find that out.
+# Secrets: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+# ANDROID_KEY_PASSWORD. apps/android/scripts/make-keystore.sh creates them.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every job runs on a pinned image rather than `ubuntu-latest`. The label has
+# already moved once underneath this repo (to 26.04, which Playwright 1.56 does
+# not support), and the emulator action is built and tested against 24.04.
+
+# A newer push supersedes an in-flight pull request run. A run on main is never
+# cancelled: it may be halfway through publishing.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and verify the APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      released: ${{ steps.version.outputs.released }}
+      signing: ${{ steps.signing.outputs.mode }}
+      fingerprint: ${{ steps.verify.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(node -p "require('./apps/android/package.json').version")"
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::apps/android/package.json version must be X.Y.Z, found '$version'"
+            exit 1
+          fi
+          # versionCode is major*10000 + minor*100 + patch, which only rises
+          # monotonically while minor and patch stay under 100.
+          if (( BASH_REMATCH[2] > 99 || BASH_REMATCH[3] > 99 )); then
+            echo "::error::minor and patch must stay below 100 (versionCode = major*10000 + minor*100 + patch)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then released=true; else released=false; fi
+          echo "released=$released" >> "$GITHUB_OUTPUT"
+          echo "Android app $version (release exists: $released)"
+
+      - name: Build the web app as a static export
+        run: pnpm --filter @etude/web build:native
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Signing key
+        id: signing
+        env:
+          # The release key is for main and nothing else: a pull request can
+          # change the build, and should not be able to sign with the real key.
+          OFFICIAL_ALLOWED: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          keystore="$RUNNER_TEMP/etude.keystore"
+          if [ "$OFFICIAL_ALLOWED" = "true" ] && [ -n "$KEYSTORE_BASE64" ]; then
+            mode=official
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+            key_alias="$KEY_ALIAS"; store_password="$KEYSTORE_PASSWORD"; key_password="$KEY_PASSWORD"
+          else
+            mode=unofficial
+            key_alias=etude-unofficial
+            store_password="$(openssl rand -hex 16)"
+            key_password="$store_password"
+            echo "::add-mask::$store_password"
+            keytool -genkeypair -keystore "$keystore" -storetype PKCS12 -alias "$key_alias" \
+              -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Etude unofficial build" \
+              -storepass "$store_password" -keypass "$key_password"
+            echo "::notice title=Unofficial signing key::This run has no release key (secrets are only used on main). The APK is signed with a throwaway key and cannot be updated in place by a later build."
+          fi
+          {
+            echo "ETUDE_KEYSTORE_FILE=$keystore"
+            echo "ETUDE_KEYSTORE_PASSWORD=$store_password"
+            echo "ETUDE_KEY_ALIAS=$key_alias"
+            echo "ETUDE_KEY_PASSWORD=$key_password"
+          } >> "$GITHUB_ENV"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Put the web build into the Android project
+        run: pnpm --filter @etude/android exec cap sync android
+
+      - name: Assemble the debug and release APKs
+        working-directory: apps/android/android
+        run: ./gradlew assembleDebug assembleRelease --console=plain
+
+      - name: Collect
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          mkdir -p dist
+          suffix=""; [ "$MODE" = official ] || suffix="-unofficial"
+          cp apps/android/android/app/build/outputs/apk/release/app-release.apk "dist/etude-$VERSION$suffix.apk"
+          cp apps/android/android/app/build/outputs/apk/debug/app-debug.apk "dist/etude-$VERSION-debug.apk"
+          ls -la dist
+
+      # Not just "did Gradle exit 0": see apps/android/scripts/verify-apk.sh for
+      # what is checked and why each of those would otherwise fail quietly.
+      - name: Verify the APKs
+        id: verify
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          # `run` defaults to `bash -e` without pipefail, so without this the
+          # `| tee` below would hide a failing verification behind tee's exit status.
+          set -o pipefail
+          suffix=""; [ "$MODE" = official ] || suffix="-unofficial"
+          bash apps/android/scripts/verify-apk.sh "dist/etude-$VERSION-debug.apk" --version "$VERSION"
+          bash apps/android/scripts/verify-apk.sh "dist/etude-$VERSION$suffix.apk" --release --version "$VERSION" | tee verify.log
+          fingerprint="$(sed -n 's/^  info  signing certificate SHA-256: //p' verify.log | head -1)"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Android $VERSION ($MODE signing)"
+            echo
+            echo "Signing certificate SHA-256: \`$fingerprint\`"
+            echo
+            echo '```'
+            (cd dist && sha256sum ./*.apk)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  # The gate: a current Android. The debug build is driven with the full suite
+  # and the release build is installed, launched and checked from outside.
+  emulator:
+    name: Emulator, Android 14
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/android-emulator
+        with:
+          api-level: 34
+
+  # Information, not a gate. Android 11 is the base of Fire OS 8, so this is the
+  # nearest a CI runner gets to the tablet — but an emulator image's stock WebView
+  # is whatever it shipped with, not Amazon's. If it is too old for the theme the
+  # run proves the app's guard works on a real old WebView; if it is new enough,
+  # it proves the app runs on Android 11. Either way it is a fact about the
+  # device class, and not something a change to the app should be blocked on.
+  emulator-fire-base:
+    name: Emulator, Android 11 (the Fire OS 8 base, informational)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/android-emulator
+        with:
+          api-level: 30
+
+  release:
+    name: Publish the release
+    needs: [build, emulator]
+    if: >-
+      github.event_name != 'pull_request'
+      && github.ref == 'refs/heads/main'
+      && needs.build.outputs.released == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Refuse to publish an unofficial build
+        if: needs.build.outputs.signing != 'official'
+        run: |
+          echo "::error title=No release signing key::Version ${{ needs.build.outputs.version }} has no release yet, but this run had no signing secrets, so its APK is signed with a throwaway key. Publishing it would hand out an app that cannot be updated in place. Add the four ANDROID_* secrets (apps/android/scripts/make-keystore.sh creates them), then use 'Re-run all jobs' — 'Re-run failed jobs' would reuse the unofficial build."
+          exit 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apks
+          path: dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ needs.build.outputs.tag }}
+          FINGERPRINT: ${{ needs.build.outputs.fingerprint }}
+        run: |
+          apk="dist/etude-$VERSION.apk"
+          test -f "$apk"
+          (cd dist && sha256sum "etude-$VERSION.apk" > "etude-$VERSION.apk.sha256")
+          checksum="$(cut -d' ' -f1 "dist/etude-$VERSION.apk.sha256")"
+          cat > notes.md <<NOTES
+          ## Install on an Android tablet or phone
+
+          1. Download **etude-$VERSION.apk** below, on the device.
+          2. Open it. Android will ask to allow installs from this source: allow it for the browser or file manager you used. On a Fire tablet this is *Settings → Security & Privacy → Apps from Unknown Sources* (the wording varies slightly between Fire OS versions).
+          3. Tap **Install**, then **Open**.
+
+          Requires Android 7.0 or newer. Étude works with the network off, and keeps its data on the device: updating by installing a newer APK over it keeps your progress; uninstalling removes it, so use *Diagnostics → Export log* first if you want to keep it.
+
+          ## Verify the download
+
+          SHA-256 of the APK:
+
+              $checksum
+
+          Signing certificate (SHA-256), the same for every release:
+
+              $FINGERPRINT
+
+          If a later release shows a different certificate, Android will refuse to install it over this one. That is the check doing its job.
+          NOTES
+          gh release create "$TAG" "$apk" "dist/etude-$VERSION.apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Étude $VERSION" \
+            --notes-file notes.md \
+            --generate-notes \
+            --latest
