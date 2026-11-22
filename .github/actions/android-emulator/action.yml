@@ -1,0 +1,58 @@
+name: Run the Android app on an emulator
+description: >-
+  Installs the APKs built by the "Build and verify the APK" job on an emulator at
+  the given API level and drives the app with apps/android/scripts/emulator-test.sh.
+  The calling job must have checked the repository out first.
+
+inputs:
+  api-level:
+    description: Android API level of the emulator image
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    # Playwright is used here only to talk to the app's WebView over adb; it
+    # does not need a browser.
+    - name: Install
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: android-apks
+        path: dist
+
+    - name: Enable KVM
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    # The Nexus 10 profile is 1280x800 CSS pixels at 2x, the same layout as the
+    # Fire HD 10: what the desktop profile and the real tablet are tested at.
+    - name: Run the app on the emulator
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: ${{ inputs.api-level }}
+        target: google_apis
+        arch: x86_64
+        profile: Nexus 10
+        disable-animations: true
+        script: bash apps/android/scripts/emulator-test.sh dist
+
+    - name: Keep what the emulator saw
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: emulator-android-${{ inputs.api-level }}
+        path: apps/web/e2e-artifacts/native
+        if-no-files-found: ignore
+        retention-days: 14

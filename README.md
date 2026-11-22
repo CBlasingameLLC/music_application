@@ -51,6 +51,7 @@ migrating a schema.
 
 ```
 apps/web/        Next.js 15 PWA — the tablet client
+apps/android/    The same app as an installable APK (a Capacitor WebView shell)
 packages/core/   Pure TypeScript domain logic: no DOM, no framework
 packages/content/  Curriculum and public-domain scores
 ```
@@ -74,6 +75,13 @@ The end-to-end test drives a real browser at tablet size and plays a chord on
 the on-screen keyboard. It is not ceremonial: it has already caught two
 failures that typechecked cleanly and passed every unit test — a keyboard that
 silently swallowed every tap, and a diagnostics page that hung forever.
+
+## Android app
+
+Download `etude-<version>.apk` from the [Releases](../../releases) page and open it
+on the tablet: the same app, with no browser around it, working offline. How it is
+built, signed and released, and what has and has not been verified, is in
+[`apps/android/README.md`](apps/android/README.md).
 
 ## Device notes
 
