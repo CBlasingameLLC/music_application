@@ -41,7 +41,10 @@ jobs:
 
   e2e:
     name: End-to-end
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: that label moved to Ubuntu 26.04, which this
+    # Playwright (1.56) refuses to install its browser dependencies on. Unpin when
+    # Playwright is upgraded to a release that supports the newer image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -88,7 +91,10 @@ jobs:
   # on /diagnostics cover that gap. See apps/web/e2e/README.md.
   android:
     name: Android layout (emulated)
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: that label moved to Ubuntu 26.04, which this
+    # Playwright (1.56) refuses to install its browser dependencies on. Unpin when
+    # Playwright is upgraded to a release that supports the newer image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

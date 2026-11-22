@@ -45,6 +45,10 @@ on:
 permissions:
   contents: read
 
+# Every job runs on a pinned image rather than `ubuntu-latest`. The label has
+# already moved once underneath this repo (to 26.04, which Playwright 1.56 does
+# not support), and the emulator action is built and tested against 24.04.
+
 # A newer push supersedes an in-flight pull request run. A run on main is never
 # cancelled: it may be halfway through publishing.
 concurrency:
@@ -54,7 +58,7 @@ concurrency:
 jobs:
   build:
     name: Build and verify the APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -200,7 +204,7 @@ jobs:
   emulator:
     name: Emulator, Android 14
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -217,7 +221,7 @@ jobs:
   emulator-fire-base:
     name: Emulator, Android 11 (the Fire OS 8 base, informational)
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     continue-on-error: true
     steps:
@@ -233,7 +237,7 @@ jobs:
       github.event_name != 'pull_request'
       && github.ref == 'refs/heads/main'
       && needs.build.outputs.released == 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
