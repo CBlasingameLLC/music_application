@@ -32,6 +32,12 @@ fail() { echo "  FAIL  $*"; failed=1; }
 launch() { adb shell am start -W -n "$activity" | grep -E "Status|Activity|TotalTime|Error"; }
 
 step "device"
+# A CI emulator draws in software, and a 2560x1600 surface is four times the
+# pixels of the 1280x800 the app is designed around. Shrinking the display to that
+# size at mdpi keeps the layout in CSS pixels exactly what a Fire HD 10 gets (1280
+# by 800), and makes everything the WebView draws a quarter as expensive.
+adb shell wm size 1280x800 >/dev/null
+adb shell wm density 160 >/dev/null
 echo "android $(adb shell getprop ro.build.version.release | tr -d '\r') (API $(adb shell getprop ro.build.version.sdk | tr -d '\r')), $(adb shell getprop ro.product.model | tr -d '\r')"
 # The engine the app will run on, as the OS reports it.
 adb shell dumpsys webviewupdate | grep -E "Current WebView package|WebView packages" | head -3 | tr -d '\r'

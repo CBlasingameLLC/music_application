@@ -36,8 +36,8 @@ runs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
-    # The Nexus 10 profile is 1280x800 CSS pixels at 2x, the same layout as the
-    # Fire HD 10: what the desktop profile and the real tablet are tested at.
+    # A 10-inch tablet profile. emulator-test.sh then sets the display to 1280x800
+    # CSS pixels, the layout the Fire HD 10 gets and the desktop profile uses.
     - name: Run the app on the emulator
       uses: reactivecircus/android-emulator-runner@v2
       with:
