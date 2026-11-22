@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base application theme. Dark only: the web theme is a dark ground chosen
+         so the tablet does not glare off the music desk, and there is no light
+         variant to follow. -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/etude_ground</item>
+        <item name="colorPrimaryDark">@color/etude_ground</item>
+        <item name="colorAccent">@color/etude_ground</item>
+        <item name="android:windowBackground">@color/etude_ground</item>
+        <item name="android:statusBarColor">@color/etude_ground</item>
+        <item name="android:navigationBarColor">@color/etude_ground</item>
+    </style>
+
+    <style name="AppTheme.NoActionBar" parent="AppTheme">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@color/etude_ground</item>
+    </style>
+
+    <!-- Shown while the activity starts. A flat colour rather than the template's
+         logo image: the page that follows is a dark screen, and a logo between
+         two dark screens is a flash. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@color/etude_ground</item>
+        <item name="windowSplashScreenBackground">@color/etude_ground</item>
+    </style>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app's ground colour: the web theme's ground token, as sRGB. The
+         window shows it before the page paints and behind the system bars when
+         they are swiped in, so the app never flashes white. -->
+    <color name="etude_ground">#0D0F14</color>
+</resources>
