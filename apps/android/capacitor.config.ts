@@ -30,6 +30,22 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
   },
+
+  plugins: {
+    // Capacitor's own plugin owns the system bars, and the app asks it to hide
+    // them. It has to be the plugin: on load it *posts* a call that shows the
+    // bars, which lands after anything an activity does in `onCreate`, so hiding
+    // them there as well made the bars go hidden, shown, hidden while the page was
+    // still being laid out. Two owners of one setting is a race; one is not.
+    SystemBars: {
+      hidden: true,
+      // Light icons, for the moment the bars are swiped in over a dark app.
+      style: 'DARK',
+      // The page asks for `viewport-fit=cover`. Saying so up front stops the
+      // layout being corrected after the first paint.
+      initialViewportFitValueHint: 'cover',
+    },
+  },
 };
 
 export default config;

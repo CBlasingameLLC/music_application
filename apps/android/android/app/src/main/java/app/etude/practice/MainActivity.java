@@ -17,6 +17,13 @@ import com.getcapacitor.BridgeActivity;
  * around it — the thing a browser tab, or a PWA whose browser will not launch it
  * standalone, cannot give.
  *
+ * The bars are hidden by Capacitor's own SystemBars plugin (see
+ * {@code capacitor.config.ts}), not here. That plugin posts a call at load that
+ * <em>shows</em> the bars, which runs after {@code onCreate}; hiding them in
+ * {@code onCreate} as well meant two owners of one setting racing while the page
+ * was being laid out. This class only sets how they come back (transiently, by
+ * swipe) and hides them again after an interruption.
+ *
  * <b>A route-aware asset server.</b> See {@link EtudeWebViewClient}.
  */
 public class MainActivity extends BridgeActivity {
@@ -25,26 +32,22 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getBridge().setWebViewClient(new EtudeWebViewClient(getBridge()));
-        hideSystemBars();
+        WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+            .setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
 
     /**
      * The bars come back whenever the window regains focus — after a dialog, the
-     * share sheet, a permission prompt — so hiding them once in {@code onCreate}
-     * would last until the first interruption.
+     * share sheet, a permission prompt — so hiding them once at startup would last
+     * until the first interruption. Hiding what is already hidden is a no-op, so
+     * this does not compete with the plugin's initial hide.
      */
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemBars();
-    }
-
-    private void hideSystemBars() {
-        WindowInsetsControllerCompat controller =
-            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        controller.setSystemBarsBehavior(
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        );
-        controller.hide(WindowInsetsCompat.Type.systemBars());
+        if (hasFocus) {
+            WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+                .hide(WindowInsetsCompat.Type.systemBars());
+        }
     }
 }
